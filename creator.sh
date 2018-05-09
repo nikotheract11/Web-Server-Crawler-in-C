@@ -23,6 +23,8 @@ LINES=$(wc -l $2 | cut -d " " -f 1)
 if ((LINES < 10000))
 then
 	echo less than 10000
+else
+	echo  "Lines=$LINES"
 fi
 
 #Create w directories
@@ -90,7 +92,6 @@ do
             echo "$fil" >> ../ext
          done
       done
-      cat ../ext
       shuf ../ext | head -n "$q" >> ../links
       echo
       rm -rf ../ext
@@ -98,7 +99,10 @@ do
 
       for ((i=1;i<=($f+$q);i++))
       do
-         awk 'NR>=(k+i*(m/(f+q)))&&NR<=(k+(i+1)*m/(f+q))' "../$2" >> $file
+			let "start=$k+($i-1)*m/($f+$q)"
+			let "end=$start + $m/($f+$q)"
+			echo "start=$start end=$end"
+         awk -v s=$start -v e=$end 'NR>=s&&NR<=e' "../$2" >> $file
          echo >> $file
          a=$(sed -n -e "$i"p "../links")
          echo "<a href=$a> Link$i </a>" >> $file
