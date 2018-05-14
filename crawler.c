@@ -17,6 +17,7 @@
 #include <time.h>
 #include "./linked-lists/QueueInterface.h"
 #include <dirent.h>
+#include "/home/nikos/minisearch/trie.h"
 
 
 struct arg {
@@ -34,6 +35,7 @@ int BYTES;
 int EXIT;
 
 void *thread_r();
+void analyze_site(char *file);
 
 void perror_exit(char *message) {
     perror(message);
@@ -66,23 +68,30 @@ int main(int argc, char const *argv[]) {
    if ((rem = gethostbyname(argv[1])) == NULL) {
      herror("gethostbyname"); exit(1);
    }
+
    port = atoi(argv[2]); /*Convert port number to integer*/
    server.sin_family = AF_INET;       /* Internet domain */
    memcpy(&server.sin_addr, rem->h_addr, rem->h_length);
    server.sin_port = htons(port);         /* Server port */
+
+   /* A struct to store infos about the connection */
    struct arg *args = malloc(sizeof(struct arg)) ;
    args->sock = sock;
    args->serverptr = serverptr;
    args->len = sizeof(server);
 
+   /* Create thread_pool */
    create_threads(3,threads,args);
 
-
+   /* insert starting url to the queue */
    pthread_mutex_lock(&q_mutex);
    Insert((char*)argv[3],&urls,1,strlen(argv[3]));
    pthread_mutex_unlock(&q_mutex);
 
-sleep(10);
+   while(1){
+
+   }
+
 
    return 0;
 }
@@ -93,13 +102,13 @@ void *request(int sock, char *url){
    int n,len;
    int i=0;
    strcpy(url2,url);
-   /* get the first token */
+   /* Analyze url : get the first token */
    token = strtok(url2, "/");
 
    /* walk through other tokens */
    while( token != NULL ) {
       tok[i] = malloc(strlen(token)+1);
-      strcpy(tok[i++],token);
+      strcpy(tok[i++],token);    // store tokens here
       token = strtok(NULL, "/");
    }
 
@@ -124,17 +133,17 @@ void *request(int sock, char *url){
    if ((n = read(sock, req, 1023)) > 0){
           req[n] = '\0';
           if((str = strstr(req,"Content-Length:")) == NULL) perror_exit("strstr");
-          sscanf(str,"%d",&len);
+          sscanf(str+strlen("Content-Length:"),"%d",&len);
           str = strstr(req,"\r\n\r\n");
    } else perror_exit("read");
    if(str != NULL && str != req){
-      a = (long) str - (long) req;
+      a = (long) str + strlen("\r\n\r\n") - (long) req ;
       printf("%ld\n", a);
    }
    char *buf = malloc(len - a);
    read(sock,buf,len-a);
    fputs(buf,fp);
-
+   analyze_site(filename);
 
    return NULL;
 }
@@ -142,7 +151,7 @@ void *request(int sock, char *url){
 void *thread_r(struct arg *args){
 
    printf("inside serve_th\n");
-   int flag,sock;
+   int flag=0,sock;
    struct sockaddr *serverptr ;
    size_t len;
 
@@ -169,8 +178,8 @@ void *thread_r(struct arg *args){
 
 }
 
-void analyze_site(FILE *fp){
-   int fd = open("/home/nikos/Web-Server-Crawler-in-C/site1/page1_2315.html",O_RDONLY);
+void analyze_site(char *file){
+   int fd = open(file,O_RDONLY);
    char *str;
    int sz = lseek(fd,0,SEEK_END);
    lseek(fd,0,SEEK_SET);
@@ -181,13 +190,22 @@ void analyze_site(FILE *fp){
 
    str[sz] = '\0';
    while(1){
-   s = strstr(str+1,"<a href=");
-   if(s==NULL) break;
-   s = (char *) ((long) s + strlen("<a href="));
-   str = strstr(s,">");
-   if(str==NULL) break;
-   a = (long) str - (long) s;
-   s[a] = '\0';
-   printf("%s\n",s);}
+      s = strstr(str+1,"<a href=");
+      if(s==NULL) break;
+      s = (char *) ((long) s + strlen("<a href="));
+      str = strstr(s,">");
+      if(str==NULL) break;
+      a = (long) str - (long) s;
+      s[a] = '\0';
+      printf("%s\n",s);
+
+      pthread_mutex_lock(&q_mutex);
+      p_list *p = find(s);
+      if(p==NULL){
+         Insert(s,&urls,1,strlen(s));
+         insert(s,0);
+      }
+      pthread_mutex_unlock(&q_mutex);
+   }
    close(fd);
 }
