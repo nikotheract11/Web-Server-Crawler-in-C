@@ -52,8 +52,10 @@ void create_threads(int thread_count, pthread_t *threads,struct arg *args){
 int main(int argc, char const *argv[]) {
    int             port, sock;
 
-   struct sockaddr_in server;
+   struct sockaddr_in server,server2;
    struct sockaddr *serverptr = (struct sockaddr*)&server;
+   struct sockaddr *serverptr2=(struct sockaddr *)&server2;
+
    struct hostent *rem;
    int thread_count = 3;  // atoi(argv[1])
    pthread_t *threads = malloc(thread_count*sizeof(pthread_t));
@@ -68,6 +70,8 @@ int main(int argc, char const *argv[]) {
    if ((rem = gethostbyname(argv[1])) == NULL) {
      herror("gethostbyname"); exit(1);
    }
+   /*if((sock_c = socket(AF_INET,SOCK_STREAM,0)) < 0)
+     perror_exit("sock_c");*/
 
    port = atoi(argv[2]); /*Convert port number to integer*/
    server.sin_family = AF_INET;       /* Internet domain */
@@ -88,11 +92,27 @@ int main(int argc, char const *argv[]) {
    Insert((char*)argv[3],&urls,1,strlen(argv[3]));
    pthread_mutex_unlock(&q_mutex);
 
+   server2.sin_family = AF_INET;       /* Internet domain */
+   server2.sin_addr.s_addr = htonl(INADDR_ANY);
+   server2.sin_port = htons(c_port);
+
+   if(bind(sock_c,serverptr2,sizeof(server2))<0)
+       perror_exit("bind");
+   if (listen(sock_c, 5) < 0) perror_exit("listen");
+   int newsock_c;
+   struct pollfd clients[1];
+   clients[0].fd = sock_c;
+   clients[0].events = POLLRDNORM;
+
+
    while(1){
-
-   }
-
-
+     poll(clients,1,-1);
+     if (clients[0].revents & POLLRDNORM) {
+       if((newsock_c = accept(sock_c,clientptr,&clientlen)) < 0) perror_exit("accept");
+          serve_command(newsock_c);
+      }
+      if(EXIT == 1) break;
+    }
    return 0;
 }
 
@@ -156,6 +176,8 @@ void *thread_r(struct arg *args){
    size_t len;
 
    sock = args->sock;
+   if((sock = socket(AF_INET,SOCK_STREAM,0)) < 0)
+     perror_exit("sock_c");
    serverptr = args->serverptr;
    len = args->len;
 
