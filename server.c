@@ -19,6 +19,8 @@
 
 Queue fds;
 pthread_mutex_t  q_mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cv;
+int count;
 time_t start;
 int PAGES;
 int BYTES;
@@ -34,6 +36,7 @@ void server_command(int sock);
 
 int main(int argc, char *argv[]) {
    // time_t start = time(NULL);
+    pthread_cond_init(&cv, NULL); 
     start = time(NULL);
     int             port, sock, newsock;
     struct sockaddr_in server, server2, client;
@@ -50,7 +53,7 @@ int main(int argc, char *argv[]) {
 
    /* Initialize Queue, dont forget to lock mutex */
     pthread_mutex_lock(&q_mutex);
-    InitializeQueue(&fds);
+    InitializeQueue(&fds); 
     pthread_mutex_unlock(&q_mutex);
 
     if (argc != 3) {
@@ -108,7 +111,9 @@ int main(int argc, char *argv[]) {
       /* Insert socket to the queue so that a thread serves it */
          pthread_mutex_lock(&q_mutex);
          Insert(newsock,&fds);
+         count++;
          pthread_mutex_unlock(&q_mutex);
+         pthread_cond_signal(&cv);
 
     	    printf("Accepted connection\n");
    }
@@ -134,10 +139,16 @@ void create_threads(int thread_count, pthread_t *threads){
 }
 
 void send_site(int sock,char *url){
-   printf("inside send_site\n");
-   int fd = open(url,O_RDONLY);
+   printf("inside send_site %s\n",url);
+   char *root_dir = "/home/nikos/Web-Server-Crawler-in-C/www";
+   char *path = malloc(strlen(url) + strlen(root_dir)+1);
+
+   sprintf(path,"%s%s",root_dir,url);
+   int fd = open(path,O_RDONLY);
+
    int n;
    char buf[1024];
+
 
    if (fd < 0) {
       if (errno == ENOENT){
@@ -151,6 +162,7 @@ void send_site(int sock,char *url){
          "<html>Sorry dude, couldn’t find this file.</html>";
 
          if((n=write(sock,rep,strlen(rep))) < 0 )  perror("write NE");
+         return;
       }
 
       else if( errno == EACCES){
@@ -164,10 +176,12 @@ void send_site(int sock,char *url){
          "<html>Trying to access this file but don’t think I can make it</html>";
 
          if((n=write(sock,rep,strlen(rep))) < 0 )  perror("write NE");
+         return;
       }
    //   return 0;
    }
    int sz = lseek(fd,0,SEEK_END);
+   if(sz<0) perror("lseek:");
    lseek(fd,0,SEEK_SET);
 
    pthread_mutex_lock(&q_mutex);
@@ -195,6 +209,7 @@ void send_site(int sock,char *url){
    write(sock,rep,strlen(rep));
    /* Write page Content to socket */
    while((n=read(fd,buf,1023)) > 0){
+      if(n==0) break;
       if ( write(sock,buf,1023) < n) perror("bad write");
    }
 
@@ -226,19 +241,21 @@ void serve_request(int sock){
 }
 
 void *serve_th(){
-   int sock,flag=0;
+   int sock;
    printf("inside serve_th\n");
-   while(1){
-      while(!flag){
-         pthread_mutex_lock(&q_mutex);
-         flag=Remove(&fds,&sock);
-         pthread_mutex_unlock(&q_mutex);
+   pthread_mutex_lock(&q_mutex);
+  // pthread_cond_signal(&cv);
+   while(1){ 
+      while(count < 1){
+         pthread_cond_wait(&cv, &q_mutex);
       }
+      Remove(&fds,&sock);
+      count--;
+      pthread_mutex_unlock(&q_mutex);
+
 
       serve_request(sock);
       close(sock);
-
-      flag=0;
    }
    /* do stuff with sock */
 
@@ -264,11 +281,14 @@ char *conv(long n){
 }
 
 
-void stats(){
+void stats(int sock){
    printf("---> STATS <---\n");
    time_t cur = time(NULL);
    char* a=conv(difftime(cur,start));
-   printf("server up for %s, served %d pages and %d bytes\n",a,PAGES,BYTES );
+   char rep[2048];
+   memset(rep,'\0',2048);
+   sprintf(rep,"server up for %s, served %d pages and %d bytes\n",a,PAGES,BYTES );
+   if(write(sock,rep,strlen(rep)) < 0) perror("write");
    free(a);
 }
 void shutd(){
@@ -292,7 +312,7 @@ void server_command(int sock){
    if(n==0) break;
    buf[n-2] = '\0';
 
-   if(!strcmp(buf,"STATS")) stats();
+   if(!strcmp(buf,"STATS")) stats(sock);
    else if(!strcmp(buf,"SHUTDOWN")) {
       shutd();
       break;
