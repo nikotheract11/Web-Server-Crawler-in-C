@@ -162,6 +162,8 @@ void send_site(int sock,char *url){
          "<html>Sorry dude, couldn’t find this file.</html>";
 
          if((n=write(sock,rep,strlen(rep))) < 0 )  perror("write NE");
+close(fd);
+printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n");
          return;
       }
 
@@ -176,6 +178,9 @@ void send_site(int sock,char *url){
          "<html>Trying to access this file but don’t think I can make it</html>";
 
          if((n=write(sock,rep,strlen(rep))) < 0 )  perror("write NE");
+         close(fd);
+         printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n");
+
          return;
       }
    //   return 0;
@@ -212,6 +217,7 @@ void send_site(int sock,char *url){
       if(n==0) break;
       if ( write(sock,buf,1023) < n) perror("bad write");
    }
+   close(fd);
 
 //   return 0;
 }
@@ -243,9 +249,10 @@ void serve_request(int sock){
 void *serve_th(){
    int sock;
    printf("inside serve_th\n");
-   pthread_mutex_lock(&q_mutex);
+   
   // pthread_cond_signal(&cv);
    while(1){ 
+      pthread_mutex_lock(&q_mutex);
       while(count < 1){
          pthread_cond_wait(&cv, &q_mutex);
       }

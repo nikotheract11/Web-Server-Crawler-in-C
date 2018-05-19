@@ -121,7 +121,7 @@ int main(int argc, char const *argv[]) {
       }
       close(newsock_c);
       if(EXIT == 1) break;
-    }
+      }
    close(sock_c);
    return 0;
 }
@@ -201,7 +201,7 @@ void *request(int sock, char *url){
 
    }
    fclose(fp);
-   printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^%s\n",buf);
+  // printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^%s\n",buf);
    analyze_site(filename);
    return NULL;
 }
@@ -224,10 +224,10 @@ void *thread_r(struct arg *args){
       pthread_mutex_lock(&q_mutex);
       while(counter < 1){
          pthread_cond_wait(&cv, &q_mutex);
-       }
-               Remove(&urls,buf,1);
-               counter--;
-               pthread_mutex_unlock(&q_mutex);
+      }
+      Remove(&urls,buf,1);
+      counter--;
+      pthread_mutex_unlock(&q_mutex);
 
    //   printf("^^^^^^^^%s^^^^^^^^^\n",buf );
       if((sock = socket(AF_INET,SOCK_STREAM,0)) < 0)
@@ -273,8 +273,8 @@ void analyze_site(char *file){
       if(p==NULL){
          Insert(s,&urls,1,strlen(s));
          insert(s,0);
+         counter++;
       }
-      counter++;
       pthread_mutex_unlock(&q_mutex);
       pthread_cond_signal(&cv);
 
