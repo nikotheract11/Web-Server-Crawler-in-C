@@ -1,18 +1,18 @@
 #!/bin/bash
 if [ $# -ne 4 ]
 then
-	echo wrong arguments
+   echo wrong arguments
 fi
 
 if [ ! -e $1 ]
 then
-	echo Directory $1 not exists
-	mkdir "$1"
+   echo Directory $1 not exists
+   mkdir "$1"
 fi
 
 if [ ! -e $2 ]
 then
-	echo text file $2 not exists
+   echo text file $2 not exists
 fi
 
 re='^[0-9]+$'
@@ -23,9 +23,9 @@ fi
 LINES=$(wc -l $2 | cut -d " " -f 1)
 if ((LINES < 10000))
 then
-	echo less than 10000
+   echo less than 10000
 else
-	echo  "Lines=$LINES"
+   echo  "Lines=$LINES"
 fi
 
 bf=$(pwd)
@@ -34,20 +34,20 @@ rp=$(pwd)
 
 #Create w directories
 for (( i=0 ; i< $3 ; i++)) do
-	printf -v var 'site%d' "$i"
-	mkdir "$var"
+   printf -v var 'site%d' "$i"
+   mkdir "$var"
 done
 
 # Create p pages for each dir
 i=0
 for dir in */
 do
-	echo "$dir"
-	for (( j=0 ; j< $4 ; j++)) do
-		printf -v var 'page%d_%d.html' "$i" "$RANDOM"
-		touch "$dir""$var"
-	done
-	let "i = i  + 1"
+   echo "$dir"
+   for (( j=0 ; j< $4 ; j++)) do
+      printf -v var 'page%d_%d.html' "$i" "$RANDOM"
+      touch "$dir""$var"
+   done
+   let "i = i  + 1"
 done
 
 # https://stackoverflow.com/questions/16487258/how-to-declare-2d-array-in-bash
@@ -96,20 +96,20 @@ do
     #  rm -rf ../ext
       cat ../links >> ../total
 
-		k=0
-		let "k=$RANDOM%(LINES-2000)"
-		#echo "k=$k"
+      k=0
+      let "k=$RANDOM%(LINES-2000)"
+      #echo "k=$k"
 
-		m=0
-		let "m=$RANDOM%(1000)+1000"
-	#	echo "m=$m"
+      m=0
+      let "m=$RANDOM%(1000)+1000"
+   #  echo "m=$m"
 
       echo \<!DOCTYPE html\> >> $file ; echo \<body\> >> $file ; echo \<html\> >> $file
       for ((i=1;i<=($f+$q);i++))
       do
-			let "start=$k+($i-1)*$m/($f+$q)"
-			let "end=$start + $m/($f+$q)"
-		#	echo "start=$start end=$end"
+         let "start=$k+($i-1)*$m/($f+$q)"
+         let "end=$start + $m/($f+$q)"
+      #  echo "start=$start end=$end"
          awk -v s=$start -v e=$end 'NR>=s&&NR<=e' "$bf/$2" >> $file
          echo >> $file
          a=$(sed -n -e "$i"p "../links")

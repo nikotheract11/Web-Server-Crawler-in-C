@@ -7,3 +7,4 @@ int Empty(Queue *);
 int Full(Queue *);
 void Insert(ItemType R, Queue *Q,int type,int len);
 int Remove(Queue *Q, ItemType F,int type);
+int search_q(Queue Q, char *str);

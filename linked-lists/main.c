@@ -19,7 +19,10 @@ int main(void)
       Remove(&Q, &j,0);
       printf("Item %d has been removed.\n", j);
    }
-   Insert("kalispera",&Q,1,strlen("kalispera"));
+   //Insert("kalispera",&Q,1,strlen("kalispera"));
+   Insert("kapera",&Q,1,strlen("kapera"));
+   Insert("kera",&Q,1,strlen("kera"));
+   if(search_q(Q,"kalispera")) printf("############################################\n");
    char buf[32];
    Remove(&Q,buf,1);
    printf("%s\n",buf );

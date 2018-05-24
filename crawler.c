@@ -17,7 +17,7 @@
 #include <time.h>
 #include "./linked-lists/QueueInterface.h"
 #include <dirent.h>
-#include "/home/nikos/minisearch/trie.h"
+#include "/home/nikos/jobExecutor/tests/sdi1500076/trie.h"
 
 
 struct arg {
@@ -53,7 +53,13 @@ void create_threads(int thread_counter, pthread_t *threads,struct arg *args){
       }
 }
 int main(int argc, char const *argv[]) {
-   int             port, sock_c,c_port;
+   int port, sock_c,c_port;
+   pthread_cond_init(&cv, NULL); 
+   pthread_mutex_lock(&q_mutex);
+   InitializeQueue(&urls); 
+   pthread_mutex_unlock(&q_mutex);
+   signal(SIGPIPE, SIG_IGN);
+
 
    struct sockaddr_in server,server2,client;
    struct sockaddr *serverptr = (struct sockaddr*)&server;
@@ -75,6 +81,10 @@ int main(int argc, char const *argv[]) {
    }
    if((sock_c = socket(AF_INET,SOCK_STREAM,0)) < 0)
      perror_exit("sock_c");
+
+   int enable = 1;
+    if (setsockopt(sock_c, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0)
+        perror("setsockopt(SO_REUSEADDR) failed");
 
    port = atoi(argv[2]); /*Convert port number to integer*/
    c_port = atoi(argv[4]);
@@ -104,21 +114,25 @@ int main(int argc, char const *argv[]) {
    server2.sin_addr.s_addr = htonl(INADDR_ANY);
    server2.sin_port = htons(c_port);
 
-   if(bind(sock_c,serverptr2,sizeof(server2))<0)
-       perror_exit("bind");
-   if (listen(sock_c, 5) < 0) perror_exit("listen");
+   if((sock_c = socket(AF_INET,SOCK_STREAM,0)) < 0)
+     perror_exit("sock_c");
+   if(bind(sock_c,serverptr2,sizeof(server2))<0) perror_exit("bind");
+   if(listen(sock_c, 5) < 0) perror_exit("listen");
    int newsock_c;
-   struct pollfd clients[1];
-   clients[0].fd = sock_c;
-   clients[0].events = POLLRDNORM;
+   printf("sock_c=%d,c_port=%d\n",sock_c,c_port );
+  // struct pollfd clients[1];
+   //clients[0].fd = sock_c;
+  // clients[0].events = POLLRDNORM;
 
 
    while(1){
-     poll(clients,1,-1);
-     if (clients[0].revents & POLLRDNORM) {
-       if((newsock_c = accept(sock_c,clientptr,&clientlen)) < 0) perror_exit("accept");
-          server_command(newsock_c);
-      }
+    // poll(clients,1,-1);
+  //   if (clients[0].revents & POLLRDNORM) {
+       if((newsock_c = accept(sock_c,clientptr,&clientlen)) < 0) {
+        printf("newsock=%d,sock_c=%d\n",newsock_c,sock_c );
+        perror_exit("accept");}
+       server_command(newsock_c);
+   //   }
       close(newsock_c);
       if(EXIT == 1) break;
       }
@@ -145,16 +159,14 @@ void *request(int sock, char *url){
    char *root = "/home/nikos/Web-Server-Crawler-in-C/scr";
 
    char *dir = malloc(strlen(tok[i-2])+ strlen(root)+1+2);
-  // strcpy(dir,tok[i-2]);
    sprintf(dir,"%s/%s/",root,tok[i-2]);
    char *file = malloc(strlen(tok[i-1])+1);
    strcpy(file,tok[i-1]);
 
    DIR *d = opendir(dir);
-   printf("%s\n",dir );
+  // printf("%s\n",dir );
    if(d == NULL && errno == ENOENT) {
     if(mkdir(dir,0700)<0) perror("mkdir");
-    printf("ok?\n");
   }
    else closedir(d);
 
@@ -176,7 +188,6 @@ void *request(int sock, char *url){
           req[n] = '\0';
           if((str = strstr(req,"Content-Length:")) == NULL) perror_exit("strstr");
           sscanf(str+strlen("Content-Length:"),"%d",&len);
-          printf("n=%d,len=%d\n",n,len );
           str = strstr(req,"\r\n\r\n");
    } else perror_exit("read");
    if(str != NULL && str != req){
@@ -188,7 +199,6 @@ void *request(int sock, char *url){
    if(buf == NULL) perror("malloc failed");
    n=0;
    int k;
-   printf("$\n");
    if (fp < 0 ) perror("wtf?");
    while((k=read(sock,buf,500)) > 0 ) {
       n+=k;
@@ -201,19 +211,16 @@ void *request(int sock, char *url){
 
    }
    fclose(fp);
-  // printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^%s\n",buf);
    analyze_site(filename);
    return NULL;
 }
 
 void *thread_r(struct arg *args){
 
-//   printf("inside serve_th\n");
    int flag=0,sock;
    struct sockaddr *serverptr ;
    size_t len;
 
-   //sock = args->sock;
    if((sock = socket(AF_INET,SOCK_STREAM,0)) < 0)
      perror_exit("sock_c");
    serverptr = args->serverptr;
@@ -229,7 +236,6 @@ void *thread_r(struct arg *args){
       counter--;
       pthread_mutex_unlock(&q_mutex);
 
-   //   printf("^^^^^^^^%s^^^^^^^^^\n",buf );
       if((sock = socket(AF_INET,SOCK_STREAM,0)) < 0)
         perror_exit("sock_c");
 
@@ -266,14 +272,26 @@ void analyze_site(char *file){
       if(str==NULL) break;
       a = (long) str - (long) s;
       s[a] = '\0';
-      //printf("%s\n",s);
+      while (s[a-1] == ' ') s[--a] = '\0';
+      while (s[0] == ' ') s = (char *) ((long) s + 1);
+      
+
 
       pthread_mutex_lock(&q_mutex);
-      p_list *p = find(s);
+     /* p_list *p = find(s);
       if(p==NULL){
          Insert(s,&urls,1,strlen(s));
          insert(s,0);
          counter++;
+      }*/
+      struct stat buffer;
+      char *kl = malloc(1024);
+      sprintf(kl,"%s%s","./scr",s);
+      int exist = stat(kl,&buffer);
+      if(search_q(urls,s) == 0 && exist < 0){
+        Insert(s,&urls,1,strlen(s));
+        counter++;
+        //printf("===> %s\n", s);
       }
       pthread_mutex_unlock(&q_mutex);
       pthread_cond_signal(&cv);
@@ -332,6 +350,21 @@ void server_command(int sock){
    else if(!strcmp(buf,"SHUTDOWN")) {
       shutd();
       break;
+   }
+
+   /* Just this changed || */
+   /*                   \/ */
+   else {
+      char str[2048];
+      strcpy(str,buf);
+      int i = strlen(buf);
+      int n=read(sock,str+i,2048-i);
+      printf("%s\n",str );
+      if(n<0) perror("read:");
+      else {
+        jexec(str,"./doc",sock);
+      }
+
    }
  }
 }

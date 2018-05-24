@@ -61,7 +61,6 @@ int Remove(Queue *Q, ItemType F,int type)
 
 
    if (Q->Front==NULL){
-      printf("attempt to remove item from an empty queue");
       return 0;
    } else {
       if(type == 0 ) *(int *)F=*(int *)Q->Front->Item;     // for int
@@ -77,4 +76,23 @@ int Remove(Queue *Q, ItemType F,int type)
 
    }
    return 1;
+}
+
+int search_q(Queue Q,char *str){
+  if(Empty(&Q)) return 0; // if queue is empty str not in queue
+
+  QueueNode *tmp = Q.Front;
+  while(tmp != NULL){
+    char *buf=malloc(1024);
+    strcpy(buf,(char*)tmp->Item);
+    while(buf[0] == ' ') buf = (char*)((long) buf + 1);
+    int a=strlen(buf);
+    while(buf[a-1]== ' ') buf[--a] = '\0';
+    if (!strcmp(str,(char*)tmp->Item)) return 1; // found str
+    tmp = tmp->Link;
+    free(buf);
+  }
+  return 0; // not found
+
+
 }
