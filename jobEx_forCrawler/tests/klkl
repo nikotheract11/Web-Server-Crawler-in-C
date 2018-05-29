@@ -1,0 +1,2694 @@
+#include <sys/ioctl.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include "trie.h"
+
+/*
+ * create a p_list node
+*/
+int p_init(p_list ** p,int text_id,int line){
+   *p = (p_list*) malloc(sizeof(p_list));
+   (*p)->next = NULL;
+   (*p)->text_id = text_id;
+   (*p)->freq = 1;
+   (*p)->line = line;
+   (*p)->plen = 0;
+   return 0;
+}
+
+/*
+ * add a p_list node to trie
+*/
+int addplist(t_node **t,int text_id,int line){
+   t_node *tmp = *t;
+
+   // if this word, found for first time, plist = NULL
+   if(tmp->plist == NULL) {
+      p_init(&(tmp->plist),text_id,line);
+      (tmp->plist->plen)++;
+      return 0;
+   }
+
+   // else append to the end one more p_list node to plist list, or increase frequency
+   else{
+      p_list *p = tmp->plist;
+      while (p != NULL){
+         if(p->text_id == text_id && p->line == line) {     //=========== swsto?????
+            (p->freq)++;
+            return 0;
+         }
+
+         // if text_id not in the list
+         if(p->next == NULL) {
+            p_init(&(p->next),text_id,line);
+            (tmp->plist->plen)++;
+            break;
+         }
+         p = p->next;
+      }
+   }
+   return 0;
+}
+
+/*
+ * Initialize a t_node
+*/
+int t_init(t_node ** t){
+   *t = (t_node*)  malloc(sizeof(t_node));
+   (*t)->sibling = NULL;
+   (*t)->child = NULL;
+   (*t)->plist = NULL;
+   (*t)->value = 0;
+   return 0;
+}
+
+/*
+ * This function appends a key to trie t
+*/
+int append(t_node **t,const char *key,int text_id,int line){
+   unsigned int i=0;
+   t_node *tmp = *t;
+   while(i<(strlen(key)) ){
+      if(key[i] == '\0') break;
+      tmp->value = key[i];
+      if(i == strlen(key)-1) break;
+      t_init(&(tmp->child));
+      tmp = tmp->child;
+
+      i++;
+   }
+
+   //add a plist for the key
+   addplist(&tmp,text_id,line);
+   return 0;
+}
+
+/*
+ * This functions inserts key with text_id to trie t
+*/
+
+int insert( const char* key, int text_id,int line){
+   t_node *tmp = t;
+   unsigned int i = 0;
+
+   // If trie is empty, create one
+   if(t == NULL) {
+      t_init(&t);
+      tmp = t;
+      append(&tmp,key,text_id,line);
+      return 22;
+   }
+   if(strlen(key) <= 0) return 0;
+
+   // traversing trie
+   for(i=0;i<strlen(key);i++){
+      while( key[i] != tmp->value ){
+         if(tmp->sibling == NULL) break;
+         tmp = tmp->sibling;
+      }
+
+      // if key not in trie
+      if(key[i] != tmp->value){
+            t_init(&(tmp->sibling));
+            tmp = tmp->sibling;
+            append(&tmp,&(key[i]),text_id,line);
+            return 3;
+      }
+
+      // key in trie, increase frequency
+      if(i == (strlen(key) - 1) ) {
+         addplist(&tmp,text_id,line);
+         return 0;
+      }
+
+      // going down the trie
+      if(tmp->child != NULL && i < (strlen(key) -1)) tmp = tmp->child;
+
+      else {
+         append(&tmp,&(key[i]),text_id,line);
+         return 88;
+      }
+   }
+   return -2;
+}
+
+/*
+ * Print trie
+*/
+int pr_trie(t_node *t,char *buf,int i){
+   t_node *tmp=t;
+   if(t == NULL ) return -1;
+
+   buf[i++] = tmp->value;
+   if(tmp->plist != NULL) {
+      buf[i]='\0';
+      printf("%s %d\n",buf,tmp->plist->plen );
+   }
+
+   pr_trie(tmp->child,buf,i);
+   pr_trie(tmp->sibling,buf,--i);
+
+   return 0;
+}
+
+/*
+ * Return the # of texts
+*/
+/*int getLinesNumber(FILE *fp){
+	char c;
+	int count = 0;
+	while(!feof(fp)){
+		c = fgetc(fp);
+		if(c == '\n') count++;
+	}
+   fseek(fp,0,0);
+	return ++count;        // ++count becuase the last line has not a '\n' in the end
+}*/
+
+/*
+ * Creates the map
+*/
+/*char** get(const char* file){
+
+   FILE *fp;
+   fp = fopen(file,"r");
+   if(fp == NULL) return NULL;
+   int i=0,j=0,id;
+   char c;
+
+   N = getLinesNumber(fp);
+   str = (char**) malloc(N*sizeof(char*));
+   for(int k=0;k<N;k++) str[k] = NULL;
+
+   while(i++<N ){
+      int a;
+      fscanf(fp,"%d",&id);    // Get id
+
+      if(id != j) {
+         printf("Index Error\n");
+         return NULL;
+      }
+
+      fgetc(fp);           // Ignore tabs and whitespaces
+
+      getline(&(str[j]),&a,fp);
+
+      if((c=fgetc(fp)) == EOF) break;
+      else ungetc(c,fp);
+      j++;
+   }
+   fclose(fp);
+
+
+return str;
+}*/
+#ifndef _INCL_GUARD
+#define _INCL_GUARD
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define  k_1 1.2
+#define b 0.75
+#define ANSI_COLOR_GREEN   "\x1b[32m"
+#define ANSI_COLOR_RESET   "\x1b[0m"
+
+
+struct t_node *t;  // Trie root node
+char ***str; // the map to the texts
+char **files; // paths for each worker
+volatile char exited;
+
+FILE *fp; // log file
+
+struct list{
+   char *path;
+   struct list *next;
+};
+
+typedef struct list list;
+
+int insertAtStart(char *p,list **l);
+
+struct pair {     // A struct using to store id and score in the heap
+   char path[512];
+   int score;
+};
+
+
+struct p_list{    // this is a posting list node
+   int line;      // the line that the word is found
+   int text_id;   // the id of the text
+   int freq;
+   char *path;    // full path to the file
+
+
+   int plen;      // the length of the plist only found on the first element of each p_list
+   struct p_list *next;
+};
+
+struct t_node {   // this is a trie node
+   struct t_node *child;
+   struct t_node *sibling;
+   char value;
+   struct p_list *plist;
+
+};
+
+typedef struct pair pair;
+typedef struct t_node t_node;
+typedef struct p_list p_list;
+typedef unsigned int uint;
+
+// trie.c
+void catcher(int signum);
+int p_init(p_list **,int ,int );
+int t_init(t_node **);
+int addplist(t_node **, int ,int);
+int append(t_node **,const char *,int,int);
+int insert(const char *,int,int);
+char** get(const char*);
+int getLinesNumber(FILE *);
+
+// api.c
+p_list * find(const char *);
+int init(char**, int );
+void mfree();
+void p_free(p_list **);
+void t_free(t_node **);
+
+// app_functions.c
+int mygetopt(int , char * const arg[], int *,char **);
+int interface(int*,int*,int,list **,pid_t *);
+char * search(char** s,int j,char *k);
+char * operate(char **,int,char *);
+char * readMsg(int *rfd,int w,int d,char *op);
+int sendMsg(char *buf,int *wr,int w);
+char **getok(char* s,int *k);
+char *wc(char ***s);
+int worker(int rfd,int wfd);
+#endif
+#ifndef _INCL_GUARD
+#define _INCL_GUARD
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define  k_1 1.2
+#define b 0.75
+#define ANSI_COLOR_GREEN   "\x1b[32m"
+#define ANSI_COLOR_RESET   "\x1b[0m"
+
+
+struct t_node *t;  // Trie root node
+char ***str; // the map to the texts
+char **files; // paths for each worker
+volatile char exited;
+
+FILE *fp; // log file
+
+struct list{
+   char *path;
+   struct list *next;
+};
+
+typedef struct list list;
+
+int insertAtStart(char *p,list **l);
+
+struct pair {     // A struct using to store id and score in the heap
+   char path[512];
+   int score;
+};
+
+
+struct p_list{    // this is a posting list node
+   int line;      // the line that the word is found
+   int text_id;   // the id of the text
+   int freq;
+   char *path;    // full path to the file
+
+
+   int plen;      // the length of the plist only found on the first element of each p_list
+   struct p_list *next;
+};
+
+struct t_node {   // this is a trie node
+   struct t_node *child;
+   struct t_node *sibling;
+   char value;
+   struct p_list *plist;
+
+};
+
+typedef struct pair pair;
+typedef struct t_node t_node;
+typedef struct p_list p_list;
+typedef unsigned int uint;
+
+// trie.c
+void catcher(int signum);
+int p_init(p_list **,int ,int );
+int t_init(t_node **);
+int addplist(t_node **, int ,int);
+int append(t_node **,const char *,int,int);
+int insert(const char *,int,int);
+char** get(const char*);
+int getLinesNumber(FILE *);
+
+// api.c
+p_list * find(const char *);
+int init(char**, int );
+void mfree();
+void p_free(p_list **);
+void t_free(t_node **);
+
+// app_functions.c
+int mygetopt(int , char * const arg[], int *,char **);
+int interface(int*,int*,int,list **,pid_t *);
+char * search(char** s,int j,char *k);
+char * operate(char **,int,char *);
+char * readMsg(int *rfd,int w,int d,char *op);
+int sendMsg(char *buf,int *wr,int w);
+char **getok(char* s,int *k);
+char *wc(char ***s);
+int worker(int rfd,int wfd);
+#endif
+#include <sys/ioctl.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+#include <string.h>
+#include "trie.h"
+
+/*
+ * create a p_list node
+*/
+int p_init(p_list ** p,int text_id,int line){
+   *p = (p_list*) malloc(sizeof(p_list));
+   (*p)->next = NULL;
+   (*p)->text_id = text_id;
+   (*p)->freq = 1;
+   (*p)->line = line;
+   (*p)->plen = 0;
+   return 0;
+}
+
+/*
+ * add a p_list node to trie
+*/
+int addplist(t_node **t,int text_id,int line){
+   t_node *tmp = *t;
+
+   // if this word, found for first time, plist = NULL
+   if(tmp->plist == NULL) {
+      p_init(&(tmp->plist),text_id,line);
+      (tmp->plist->plen)++;
+      return 0;
+   }
+
+   // else append to the end one more p_list node to plist list, or increase frequency
+   else{
+      p_list *p = tmp->plist;
+      while (p != NULL){
+         if(p->text_id == text_id && p->line == line) {     //=========== swsto?????
+            (p->freq)++;
+            return 0;
+         }
+
+         // if text_id not in the list
+         if(p->next == NULL) {
+            p_init(&(p->next),text_id,line);
+            (tmp->plist->plen)++;
+            break;
+         }
+         p = p->next;
+      }
+   }
+   return 0;
+}
+
+/*
+ * Initialize a t_node
+*/
+int t_init(t_node ** t){
+   *t = (t_node*)  malloc(sizeof(t_node));
+   (*t)->sibling = NULL;
+   (*t)->child = NULL;
+   (*t)->plist = NULL;
+   (*t)->value = 0;
+   return 0;
+}
+
+/*
+ * This function appends a key to trie t
+*/
+int append(t_node **t,const char *key,int text_id,int line){
+   unsigned int i=0;
+   t_node *tmp = *t;
+   while(i<(strlen(key)) ){
+      if(key[i] == '\0') break;
+      tmp->value = key[i];
+      if(i == strlen(key)-1) break;
+      t_init(&(tmp->child));
+      tmp = tmp->child;
+
+      i++;
+   }
+
+   //add a plist for the key
+   addplist(&tmp,text_id,line);
+   return 0;
+}
+
+/*
+ * This functions inserts key with text_id to trie t
+*/
+
+int insert( const char* key, int text_id,int line){
+   t_node *tmp = t;
+   unsigned int i = 0;
+
+   // If trie is empty, create one
+   if(t == NULL) {
+      t_init(&t);
+      tmp = t;
+      append(&tmp,key,text_id,line);
+      return 22;
+   }
+   if(strlen(key) <= 0) return 0;
+
+   // traversing trie
+   for(i=0;i<strlen(key);i++){
+      while( key[i] != tmp->value ){
+         if(tmp->sibling == NULL) break;
+         tmp = tmp->sibling;
+      }
+
+      // if key not in trie
+      if(key[i] != tmp->value){
+            t_init(&(tmp->sibling));
+            tmp = tmp->sibling;
+            append(&tmp,&(key[i]),text_id,line);
+            return 3;
+      }
+
+      // key in trie, increase frequency
+      if(i == (strlen(key) - 1) ) {
+         addplist(&tmp,text_id,line);
+         return 0;
+      }
+
+      // going down the trie
+      if(tmp->child != NULL && i < (strlen(key) -1)) tmp = tmp->child;
+
+      else {
+         append(&tmp,&(key[i]),text_id,line);
+         return 88;
+      }
+   }
+   return -2;
+}
+
+/*
+ * Print trie
+*/
+int pr_trie(t_node *t,char *buf,int i){
+   t_node *tmp=t;
+   if(t == NULL ) return -1;
+
+   buf[i++] = tmp->value;
+   if(tmp->plist != NULL) {
+      buf[i]='\0';
+      printf("%s %d\n",buf,tmp->plist->plen );
+   }
+
+   pr_trie(tmp->child,buf,i);
+   pr_trie(tmp->sibling,buf,--i);
+
+   return 0;
+}
+
+/*
+ * Return the # of texts
+*/
+/*int getLinesNumber(FILE *fp){
+	char c;
+	int count = 0;
+	while(!feof(fp)){
+		c = fgetc(fp);
+		if(c == '\n') count++;
+	}
+   fseek(fp,0,0);
+	return ++count;        // ++count becuase the last line has not a '\n' in the end
+}*/
+
+/*
+ * Creates the map
+*/
+/*char** get(const char* file){
+
+   FILE *fp;
+   fp = fopen(file,"r");
+   if(fp == NULL) return NULL;
+   int i=0,j=0,id;
+   char c;
+
+   N = getLinesNumber(fp);
+   str = (char**) malloc(N*sizeof(char*));
+   for(int k=0;k<N;k++) str[k] = NULL;
+
+   while(i++<N ){
+      int a;
+      fscanf(fp,"%d",&id);    // Get id
+
+      if(id != j) {
+         printf("Index Error\n");
+         return NULL;
+      }
+
+      fgetc(fp);           // Ignore tabs and whitespaces
+
+      getline(&(str[j]),&a,fp);
+
+      if((c=fgetc(fp)) == EOF) break;
+      else ungetc(c,fp);
+      j++;
+   }
+   fclose(fp);
+
+
+return str;
+}*/
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include "./trie.h"
+#include <poll.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/wait.h>
+
+
+/*
+ * Returns tokens and their #
+ */
+char **getok(char* ss,int *k){
+	char **st;
+	int count=0;
+	char *token;
+	for(unsigned int i=0;i<=strlen(ss);i++){
+		if(ss[i] == ' ' || ss[i] == '\0') count++;
+	}
+	char *s = malloc(strlen(ss)+1);
+	strcpy(s,ss);
+	st = (char**) malloc(count*sizeof(char*));
+
+	token = strtok(s," ");
+	int j=0;
+	while(token != NULL) {
+		st[j] = (char*) malloc(sizeof(char)*(strlen(token)+1));
+		strcpy(st[j++],token);
+		token = strtok(NULL," ");
+		if(j>11) break;
+	}
+	*k=j;
+	free(token);
+	return st;
+
+}
+
+int writeLog(char *op,char *keyword,char *path,char *t){
+	t[strlen(t)-1]=' ';
+	fprintf(fp, "%s : %s : %s : %s\n",t,op,keyword,path );
+	return 0;
+}
+/*
+ * Searching on trie, implementation of /search feature
+ */
+char * search(char** s,int j,char *date){
+	if(j < 4) {
+		printf("Wrong arguments for /search\n");
+		return NULL;
+	}
+
+	char *reply;
+	int sz=512;  // first, allocate 512 bytes for reply, realloc if needed
+	int total=0;   // total bytes to be written
+
+	reply = malloc(sz*sizeof(char));
+	memset(reply,'\0',sz);
+
+
+	for(int i=1;i<j-2;i++){
+		p_list *p = find(s[i]);    // p_list of this word if exists
+		if(p == NULL) continue;       // if not exists break
+
+		while(p != NULL) {
+			total += sizeof(int) + strlen(files[p->text_id]) \
+				 + strlen(str[p->text_id][p->line]) +5; // Bcs reply is Path Line# Line_Content  , +4 bcs of ":",'\n','\0'
+			if(total >= sz) {
+				sz *= 2;    // Double size
+				if((reply=realloc(reply,sz)) == NULL) perror("realloc failed");
+			}
+
+			sprintf(reply,"%s%s:%d:%s\n",reply,files[p->text_id],p->line,str[p->text_id][p->line]);
+
+			/* Keep log */
+			writeLog("search",s[i],files[p->text_id],date);
+			p = p->next;
+		}
+	}
+
+	char *msg = malloc(strlen(reply)+sizeof(int));
+	int szi = strlen(reply);
+	memcpy(msg,&szi,sizeof(int));
+	memcpy(&(msg[sizeof(int)]),reply,szi);
+	return msg;
+}
+
+char *maxcount(char **s,int j,char *date){
+	if(j < 2) {
+		printf("Wrong arguments for /search\n");
+		return NULL;
+	}
+	pair min;
+	for(int i=1;i<j;i++){
+		p_list *p = find(s[i]);    // p_list of this word if exists
+		if(p == NULL) break;       // if not exists break
+
+		pair **Pair = NULL;
+		Pair=malloc(p->plen*sizeof(pair*));
+		for(int i=0;i<p->plen;i++) Pair[i] = NULL;
+		int l=0,pp=0;
+		while(p != NULL){
+			for(int h=0;h<l;h++)
+				if(!strcmp(Pair[h]->path,files[p->text_id])) {
+					pp =h;
+					break;
+				}
+			if(pp>0) {
+				Pair[pp]->score++;
+				pp=0;
+			}
+			else{
+			Pair[l] = malloc(sizeof(pair));
+			strcpy(Pair[l]->path,files[p->text_id]);
+			Pair[l++]->score = 1;
+		}
+
+			p=p->next;
+		}
+
+		/* Find the min */
+		min = *Pair[0];
+		for(int k=1;k<l;k++){
+			if(Pair[k]->score > min.score) min = *Pair[k];
+		}
+	}
+	writeLog("maxcount",s[1],min.path,date);
+
+	char *reply = malloc(sizeof(pair)+sizeof(int));
+	memset(reply,0,sizeof(pair)+sizeof(int));
+	int ll=sizeof(pair);
+
+	memcpy(reply,&ll,sizeof(int));
+	memcpy(&(reply[sizeof(int)]),&min,sizeof(pair));
+
+	return reply;
+}
+
+char *mincount(char **s,int j,char *date,int op){
+	if(j < 2) {
+		printf("Wrong arguments for /search\n");
+		return NULL;
+	}
+	pair min;
+	for(int i=1;i<j;i++){
+		p_list *p = find(s[i]);    // p_list of this word if exists
+		if(p == NULL) break;       // if not exists break
+
+		pair **Pair = NULL;
+		Pair=malloc(p->plen*sizeof(pair*));
+		for(int i=0;i<p->plen;i++) Pair[i] = NULL;
+		int l=0,pp=0;
+		while(p != NULL){
+			for(int h=0;h<l;h++)
+				if(!strcmp(Pair[h]->path,files[p->text_id])) {
+					pp =h;
+					break;
+				}
+			if(pp>0) {
+				Pair[pp]->score++;
+				pp=0;
+			}
+			else{
+			Pair[l] = malloc(sizeof(pair));
+			strcpy(Pair[l]->path,files[p->text_id]);
+			Pair[l++]->score = 1;
+		}
+
+			p=p->next;
+		}
+
+		/* Find the min */
+		min = *Pair[0];
+		for(int k=1;k<l;k++){
+			if((Pair[k]->score)*op <= (min.score)*op) min = *Pair[k];
+		}
+	}
+	writeLog("mincount",s[1],min.path,date);
+
+	char *reply = malloc(sizeof(pair)+sizeof(int));
+	memset(reply,0,sizeof(pair)+sizeof(int));
+	int ll=sizeof(pair);
+
+	memcpy(reply,&ll,sizeof(int));
+	memcpy(&(reply[sizeof(int)]),&min,sizeof(pair));
+
+	return reply;
+}
+
+char *wc(char ***s){
+	int i=0,bytes=0,words=0,lines=0;
+	while(s[i] != NULL){
+		int j=0;
+		while(s[i][j] != NULL){
+			lines++;
+			bytes += strlen(s[i][j]);
+			int tmp=0;
+			getok(s[i][j],&tmp);
+			words += tmp;
+			j++;
+		}
+		i++;
+	}
+	char *reply = malloc(3*sizeof(int)+sizeof(int));
+
+	int sz=3*sizeof(int);
+	memcpy(reply,&sz,sizeof(int));
+	memcpy(&(reply[sizeof(int)]),&bytes,sizeof(int));
+	memcpy(&(reply[2*sizeof(int)]),&words,sizeof(int));
+	memcpy((&reply[3*sizeof(int)]),&lines,sizeof(int));
+
+	return reply;
+}
+
+/*
+ * Calls the right function
+ */
+char * operate( char** s,int j,char *k){
+	if(!strcmp(s[0],"/exit")) return NULL;
+	if(!strcmp(s[0],"/search")) return search(s,j,k);
+	else if(!strcmp(s[0],"/maxcount")) return maxcount(s,j,k);
+	else if(!strcmp(s[0],"/mincount")) return mincount(s,j,k,1);
+	else if(!strcmp(s[0],"/wc")) return wc(str);
+	else {
+		printf("Not such a command available\n");
+		return NULL;
+	}
+}
+
+int sendMsg(char *buf,int *wr,int w){
+	struct pollfd *pfds;
+	pfds = malloc(w*sizeof(struct pollfd));
+
+
+	for(int i=0;i<w;i++){
+		pfds[i].fd = wr[i];
+		pfds[i].events = POLLOUT;
+	}
+
+	int sent,bytesToSend,n;
+
+	/* first read how many bytes to send */
+	memcpy(&bytesToSend,buf,sizeof(int));
+	poll(pfds,w,-1);
+	for(int i=0;i<w;i++){
+		sent = sizeof(int);
+
+		if(pfds[i].revents & POLLOUT){
+			while((n=write(wr[i],(buf),bytesToSend+sizeof(int))) > 0){
+				sent += n;     // Total bytes sent, dont stop until all bytes have been sent
+				if(sent >= bytesToSend+2*sizeof(int)) break;
+			}
+		}
+	}
+	return 0;
+}
+
+int jsearch(char **s,int w){
+	for(int i=0;i<w;i++){
+		if(s[i]!=NULL) printf("%s\n",s[i] );
+	}
+	return 0;
+}
+
+int jmax(char **s,int w){
+	pair *pairs,max;
+	pairs = malloc(w*sizeof(pair));
+	for(int i=0;i<w;i++){
+		if(s[i]==NULL) continue;
+		memcpy(&pairs[i],s[i],sizeof(pair));
+		if(i==0) max = pairs[0];
+		else
+			if(pairs[i].score > max.score) max=pairs[i];
+	}
+	printf("Max: %s\n",max.path );
+	return 0;
+}
+
+int jmin(char **s,int w,int op){
+
+	pair *pairs,min;
+	pairs = malloc(w*sizeof(pair));
+	for(int i=0;i<w;i++){
+		if(s[i] == NULL) continue;
+		memcpy(&pairs[i],s[i],sizeof(pair));
+		if(i==0) min = pairs[0];
+		else
+			if((pairs[i].score)*op < (min.score)*op) min=pairs[i];
+	}
+
+	printf("Min: %s\n",min.path );
+
+	return 0;
+}
+
+int jwc(char **s,int w){
+	int total_b=0,total_w=0,total_l=0;
+	for(int i=0;i<w;i++){
+		int bytes=0,words=0,lines=0;
+		if(s[i]==NULL) continue;
+		memcpy(&bytes,s[i],sizeof(int));
+		memcpy(&words,&(s[i][sizeof(int)]),sizeof(int));
+		memcpy(&lines,&(s[i][2*sizeof(int)]),sizeof(int));
+
+		total_b += bytes;
+		total_w += words;
+		total_l += lines;
+	}
+
+	printf("b->%d w->%d l->%d\n",total_b,total_w,total_l );
+	return 0;
+}
+
+void catcher(int signum) {
+  return;
+}
+
+
+char * readMsg(int *rfd,int w,int d,char *op){
+	struct pollfd *pfds;
+	char **buf = malloc(w*sizeof(char*));
+	int noReply=0;
+	pfds = malloc(w*sizeof(struct pollfd));
+	for(int i=0;i<w;i++){
+		pfds[i].fd = rfd[i];
+		pfds[i].events = POLLIN;
+	}
+
+	struct sigaction sigact;
+	sigemptyset(&sigact.sa_mask);
+	sigact.sa_flags = 0;
+	sigact.sa_handler = catcher;
+	sigaction(SIGALRM, &sigact, NULL);
+
+	/* d=-1 for workers */
+
+   if(d>=0){
+		alarm(d);
+		pause();
+	}
+	poll(pfds,w,d);
+
+	for(int i=0;i<w;i++){
+		if(pfds[i].revents & POLLIN){
+			int bytesToRead,bytesRead=0,k;
+			if(read(rfd[i],&bytesToRead,sizeof(int)) < 0)
+				perror("kokokdoakdoakdoak");
+
+			buf[i] = malloc((bytesToRead+1)*sizeof(char));
+
+			while(bytesRead < bytesToRead){
+				if((	k = read(rfd[i],(buf[i]),bytesToRead))<0)
+					perror("readMsg");
+				else bytesRead += k;
+			}
+			buf[i][bytesToRead]='\0';
+		}
+		else {
+			noReply++;
+			buf[i]=NULL;
+		}
+	}
+
+
+	if(d >= 0) printf("%d/%d workers replied\n",w-noReply,w );
+	if( noReply == w) return NULL;
+
+	/* op is NULL for workers */
+	if(d==-1){
+		for(int i=0;i<w;i++){
+			if(buf[i]!=NULL) {
+				int toks;
+				char **tok = getok(buf[i],&toks);
+				return operate(tok,toks,op);
+			}
+		}
+		return 0;
+	}
+	if(!strcmp(op,"/search")) jsearch(buf,w);
+	else if(!strcmp(op,"/maxcount")) jmax(buf,w);
+	else if(!strcmp(op,"/mincount")) jmin(buf,w,1);
+	else if(!strcmp(op,"/wc")) jwc(buf,w);
+	return *buf;
+}
+
+/*int dead_w(list **paths,int w,pid_t *workers,int *writefd,int *readfd){
+	pid_t p;
+	int status;
+
+	for(int i=0;i<w;i++){
+		exited = 0;
+		if((p=waitpid(workers[i],&status,WNOHANG)) > 0){
+			p = fork();
+			if(p == 0) {
+				int write_fd,read_fd;
+				char fifo_1[32],fifo_2[32];
+				sprintf(fifo_1,"/tmp/fifo1_%d",i);
+				sprintf(fifo_2,"/tmp/fifo2_%d",i);
+
+				if((write_fd = open(fifo_1,1)) < 0){
+					perror("worker:cant open write");
+				}
+				if((read_fd = open(fifo_2,0)) < 0){
+					perror("worker: cant open read fifo");
+				}
+				worker(read_fd,write_fd);
+				return 0;
+			}
+			else {
+				workers[i] = p;
+				char fifo_1[32],fifo_2[32];
+				sprintf(fifo_1,"/tmp/fifo1_%d",i);
+				sprintf(fifo_2,"/tmp/fifo2_%d",i);
+
+				if ( (readfd[i] = open(fifo_1, 0|O_NONBLOCK))  < 0)  {
+					perror("server: can't open read fifo");
+				}
+				if ( (writefd[i] = open(fifo_2, 1))  < 0)  {
+					perror("server: can't open write fifo");
+				}
+				return p;
+			}
+		}
+	}
+	return 0;
+}*/
+
+/*
+ * The Application interface
+ */
+int interface(int *wfd,int *rfd,int w,list **paths,pid_t *workers){
+	char buf[256];
+
+	while(1){
+		printf("Type command: ");
+//		scanf("%m[^\n]s\n",&buf );
+		gets(buf);
+		//getchar();
+
+		int tok_num,d=1;
+		char **tok = getok(buf,&tok_num);
+		if(!strcmp(tok[0],"/search")) d = atoi(tok[tok_num-1]);
+
+		/* Check for dead workers */
+	/*	if(exited)
+			if(dead_w(paths,w,workers,wfd,rfd) == 0) return 0;*/
+
+		if(!strcmp(tok[0],"/exit")) return 0;
+		char *msg = malloc(strlen(buf)+1+sizeof(int));
+		int sz = strlen(buf);
+
+		memcpy(msg,&sz,sizeof(int));
+		memcpy(&msg[sizeof(int)],buf,strlen(buf));
+
+		/* Send query to workers */
+		sendMsg(msg,wfd,w);
+		/* Print replies */
+		readMsg(rfd,w,d,tok[0]);
+
+//		free(buf);
+	}
+//	free(buf);
+	return 0;
+}
+#include  <sys/types.h>
+#include  <sys/stat.h>
+#include <sys/errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <sys/poll.h>
+#include <time.h>
+#include "./trie.h"
+
+#define MAXBUFF 1024
+#define FIFO1   "/tmp/fifo.1"
+#define FIFO2   "/tmp/fifo.2"
+#define PERMS   0666
+
+
+
+/* Insert list node with a path for jobExecutor */
+int insertAtStart(char *p,list **l){
+	if(*l == NULL){
+		(*l) = malloc(sizeof(list));
+		(*l)->path = malloc(strlen(p)+1);
+		strcpy((*l)->path,p);
+		(*l)->next = NULL;
+		return 0;
+	}
+	list *tmp = *l;
+	list *new = malloc(sizeof(list));
+	new->path = malloc((strlen(p)+1));
+	strcpy(new->path,p);
+	new->next = tmp;
+	*l = new;
+	return 0;
+}
+
+void handler(int signum){
+	exited = 1;
+}
+
+int jobExecutor(int *wr,int *rfd,int w,pid_t *workers,char *docfile){
+	int fd,n;
+	char str[50],c;
+	int counter=0,j=0;
+
+	list **paths=NULL	;		// a list whith paths for each worker
+	paths = malloc(w*sizeof(list*));
+	for(int i=0;i<w;i++) paths[i] = NULL;
+	if(paths == NULL) return -1;
+
+//	sleep(2);
+	if((fd = open(docfile,0)) < 0) perror("open");
+
+	struct pollfd *pfds;
+	pfds = malloc(w*sizeof(struct pollfd));
+	for(int i=0;i<w;i++){
+		pfds[i].fd = wr[i];
+		pfds[i].events = POLLOUT|POLLIN;
+	}
+
+	poll(pfds,w,-1);
+
+	/* Send paths to workers */
+	while((n=read(fd,&c,1)) > 0){
+		if(c == '\n') {
+			str[j] = '\0';
+			if((pfds[counter%w].revents & POLLOUT) && write(wr[counter%w],str,j+1)<=0) perror("write error"); 		// j anti j-1?
+			insertAtStart(str,&paths[counter++%w]);
+			printf("f:::: %s\n",str);
+			j=0;
+		}
+		else str[j++] = c;
+//		poll(pfds,w,-1);
+	}
+	sleep(1);
+
+	/* All paths have been sent, now send STOP to let them know */
+//	poll(pfds,w,-1);
+	for(int i=0;i<w;i++){
+		if(pfds[i].revents & POLLOUT) write(wr[i],"stop",strlen("stop")+1);
+//		poll(pfds,w,-1);
+	}
+//	sleep(1);
+	/* Here comes the user interface */
+	interface(wr,rfd,w,paths,workers);
+
+	return 0;
+}
+
+
+
+int worker(int rfd,int wfd){
+	int n;
+	char buff[1024];
+	char s[32];
+	char **dirs;	// Array with the paths
+	int d_sz = 16;	// Size of dirs, if grows more than 16 paths, realloc
+	int d_num=0; 	// Total dirs
+	time_t arrival;
+	sprintf(s,"./log/worker%d",getpid());
+	fp = fopen(s,"a");
+
+	dirs = malloc(d_sz*sizeof(char*));
+
+	while((n=read(rfd,buff,MAXBUFF)) > 0){
+		/* Here open files, create map and trie */
+		if(d_num > d_sz){
+			d_sz *= 2;
+			dirs = realloc(dirs,d_sz);
+			if(dirs == NULL) perror("realloc failed");
+		}
+
+		if(!strcmp(buff,"stop")) break;
+		dirs[d_num] = malloc(strlen(buff)+1);
+//		printf("d:::: %s\n",dirs[d_num-1]);
+		strcpy(dirs[d_num++],buff);
+		printf("d:::: %s\n",dirs[d_num-1]);
+	}
+
+	init(dirs,d_num);		// Initialize structures like trie and map
+
+	/* Now, that files are read, read the query */
+	while(1){
+		/* Tokenize buffer, read the first token to execute the query */
+		arrival = time(NULL);
+		char * c_time = ctime(&arrival);
+		char *query= readMsg(&rfd,1,-1,c_time);
+		if(query == NULL) return 0;
+		sendMsg(query,&wfd,1);
+	}
+	fclose(fp);
+
+	return 0;
+}
+
+
+int main(int argc, char * const argv[]) {
+	int *readfd,*writefd,w;
+	pid_t p,workers[5];
+	char *docfile;
+
+	mkdir("./log",0777);
+
+	mygetopt(argc,argv,&w,&docfile);
+	readfd = malloc(w*sizeof(int));
+	writefd = malloc(w*sizeof(int));
+
+
+	for(int i=0;i<w;i++){
+		char fifo_1[32],fifo_2[32];
+
+		/*===== Create fifos  =====*/
+		sprintf(fifo_1,"./fifo1_%d",i);
+		sprintf(fifo_2,"./fifo2_%d",i);
+
+		if((mkfifo(fifo_1,PERMS) < 0) && (errno != EEXIST)){
+			perror("cant create fifo");
+		}
+		if((mkfifo(fifo_2,PERMS) < 0) && (errno != EEXIST)){
+			perror("cant create fifo");
+		}
+	}
+	/*======= fork() w Workers =======*/
+	int read_fd,write_fd;
+	for(int i=0;i<w;i++){
+		char fifo_1[32],fifo_2[32];
+
+		p = fork();
+		sprintf(fifo_1,"./fifo1_%d",i);
+		sprintf(fifo_2,"./fifo2_%d",i);
+		if(p == 0) {
+			/*======	Open fifos for workers ======*/
+			if((write_fd = open(fifo_1,1)) < 0){
+				perror("worker:cant open write");
+			}
+			if((read_fd = open(fifo_2,0)) < 0){
+				perror("worker: cant open read fifo");
+			}
+			break;
+		}
+		else if(p > 0){
+			/*	Open fifo for jobExecutor */
+			workers[i]=p;
+			if ( (readfd[i] = open(fifo_1, 0|O_NONBLOCK))  < 0)  {
+				perror("server: can't open read fifo");
+			}
+			if ( (writefd[i] = open(fifo_2, 1))  < 0)  {
+				perror("server: can't open write fifo");
+			}
+		}
+		else {
+			perror("fork:failed");
+		}
+	}
+	if(p==0) {
+		worker(read_fd,write_fd);
+		close(write_fd);
+		close(read_fd);
+		return 0;
+	}
+	else {
+		jobExecutor(writefd,readfd,w,workers,docfile);
+		for(int i=0;i<w;i++){
+			char fifo_1[32],fifo_2[32];
+		//	int status;
+
+			sprintf(fifo_1,"./fifo1_%d",i);
+			sprintf(fifo_2,"./fifo2_%d",i);
+		//	waitpid(workers[i],&status,0);
+			close(writefd[i]);
+			close(readfd[i]);
+			unlink(fifo_1);
+			unlink(fifo_2);
+		}
+	}
+
+	return 0;
+}
+#include  <stdio.h>
+#include  <sys/types.h>
+#include  <dirent.h>
+#include <stdlib.h>
+#include <string.h>
+#include "./trie.h"
+
+char **get(const char* file);
+char ***map_(char **dirname,int dir_num,unsigned int *files_num,char ***);
+
+
+int init(char **d,int d_n){
+	//char *d="./ff";
+	unsigned int fn;
+	int inn;
+	char *token,*tmp;
+	str = map_(d,d_n,&fn,&files);
+	int j=0;
+	for(int i=0;i<fn;i++){	// for each file
+		j=0;
+		if(str[i] == NULL) break;
+		while(str[i][j] != NULL){	// for each line
+			tmp =(char *) malloc(sizeof(char)*(strlen(str[i][j])+1));
+			strcpy(tmp,str[i][j]);
+			token = strtok(tmp," ");
+			while(token != NULL){
+				if(token[strlen(token)-1] =='\n' || token[strlen(token)-1] ==' ') token[strlen(token)-1]='\0'; // ==
+				if((inn=insert(token,i,j))<0) printf("ERROR %d\n", inn);
+            token  = strtok(NULL," ");
+			}
+			j++;
+         free(tmp);
+         free(token);
+		}
+	}
+	return 0;
+
+}
+
+/* map returns a map to texts */
+char ***map_(char **dirname,int dir_num,unsigned int *files_num,char ***fs){
+	DIR *dir_ptr;
+	struct dirent *direntp;
+	char ***map,**files;
+
+	size_t sz=32;
+	map = (char***) malloc(sz*sizeof(char**));     // 32 places for texts, if more -> realloc
+	files = malloc(sz*sizeof(char*));
+	unsigned int i=0;
+	for(int j=0;j<dir_num;j++){
+
+		/* open directory j */
+		printf("%s\n",dirname[j] );
+		if ( ( dir_ptr = opendir(dirname[j])) == NULL )
+			fprintf(stderr, "cannot hj jh jh  open %s\n",dirname[j]);
+		else {
+			while ( ( direntp=readdir(dir_ptr) ) != NULL ){
+				if (direntp->d_ino == 0 ) continue;
+
+				/* reallocate space when sz texts reached */
+				if(i >= sz) {
+					sz *= 2;
+					map = (char***) realloc(map,sz*sizeof(char ***));
+					files = realloc(files,sz*sizeof(char*));
+					if(map == NULL){
+						perror("Realloc failed");
+						return NULL;
+					}
+				}
+
+				/* store each text to map */
+				if(direntp-> d_type != DT_DIR) {   // ignore "." and ".."
+					char *file = malloc(strlen(dirname[j])+strlen(direntp->d_name)+2);
+					sprintf(file,"%s/%s",dirname[j],direntp->d_name);
+					map[i]=get(file);
+					files[i] = malloc(sizeof(char)*(strlen(file)+1));
+					strcpy(files[i++],file);
+				}
+			}
+			closedir(dir_ptr);
+		}
+	}
+	map[i]=NULL;
+	*files_num = i;
+	*fs = files;
+	return map;
+}
+
+	/*
+	 * Return the # of texts
+	 */
+	int getLinesNumber(FILE *fp){
+		char c;
+		int count = 0;
+		while(!feof(fp)){
+			c = fgetc(fp);
+			if(c == '\n') count++;
+		}
+		fseek(fp,0,0);
+		return ++count;        // ++count becuase the last line has not a '\n' in the end
+	}
+
+	char **get(const char* file){
+
+		FILE *fp;
+	//	char kk[32];
+		//sprintf(kk,"./ff/%s",file);
+		fp = fopen(file,"r");
+		if(fp == NULL) {
+			perror("GET file not open");
+			printf("%s\n",file);
+			return NULL;
+		}
+		int i=0,j=0;
+		char c;
+		char **str;
+
+		int n = getLinesNumber(fp);
+		str = (char**) malloc(n*sizeof(char*));
+		for(int k=0;k<n;k++) str[k] = NULL;
+
+		while(i++<n ){
+			size_t a;
+			getline(&(str[j]),&a,fp);
+
+			if((c=fgetc(fp)) == EOF) break;
+			else ungetc(c,fp);
+			j++;
+		}
+		str[i] = NULL;
+		fclose(fp);
+
+
+		return str;
+	}
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include "./trie.h"
+#include <poll.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/wait.h>
+
+
+/*
+ * Returns tokens and their #
+ */
+char **getok(char* ss,int *k){
+	char **st;
+	int count=0;
+	char *token;
+	for(unsigned int i=0;i<=strlen(ss);i++){
+		if(ss[i] == ' ' || ss[i] == '\0') count++;
+	}
+	char *s = malloc(strlen(ss)+1);
+	strcpy(s,ss);
+	st = (char**) malloc(count*sizeof(char*));
+
+	token = strtok(s," ");
+	int j=0;
+	while(token != NULL) {
+		st[j] = (char*) malloc(sizeof(char)*(strlen(token)+1));
+		strcpy(st[j++],token);
+		token = strtok(NULL," ");
+		if(j>11) break;
+	}
+	*k=j;
+	free(token);
+	return st;
+
+}
+
+int writeLog(char *op,char *keyword,char *path,char *t){
+	t[strlen(t)-1]=' ';
+	fprintf(fp, "%s : %s : %s : %s\n",t,op,keyword,path );
+	return 0;
+}
+/*
+ * Searching on trie, implementation of /search feature
+ */
+char * search(char** s,int j,char *date){
+	if(j < 4) {
+		printf("Wrong arguments for /search\n");
+		return NULL;
+	}
+
+	char *reply;
+	int sz=512;  // first, allocate 512 bytes for reply, realloc if needed
+	int total=0;   // total bytes to be written
+
+	reply = malloc(sz*sizeof(char));
+	memset(reply,'\0',sz);
+
+
+	for(int i=1;i<j-2;i++){
+		p_list *p = find(s[i]);    // p_list of this word if exists
+		if(p == NULL) continue;       // if not exists break
+
+		while(p != NULL) {
+			total += sizeof(int) + strlen(files[p->text_id]) \
+				 + strlen(str[p->text_id][p->line]) +5; // Bcs reply is Path Line# Line_Content  , +4 bcs of ":",'\n','\0'
+			if(total >= sz) {
+				sz *= 2;    // Double size
+				if((reply=realloc(reply,sz)) == NULL) perror("realloc failed");
+			}
+
+			sprintf(reply,"%s%s:%d:%s\n",reply,files[p->text_id],p->line,str[p->text_id][p->line]);
+
+			/* Keep log */
+			writeLog("search",s[i],files[p->text_id],date);
+			p = p->next;
+		}
+	}
+
+	char *msg = malloc(strlen(reply)+sizeof(int));
+	int szi = strlen(reply);
+	memcpy(msg,&szi,sizeof(int));
+	memcpy(&(msg[sizeof(int)]),reply,szi);
+	return msg;
+}
+
+char *maxcount(char **s,int j,char *date){
+	if(j < 2) {
+		printf("Wrong arguments for /search\n");
+		return NULL;
+	}
+	pair min;
+	for(int i=1;i<j;i++){
+		p_list *p = find(s[i]);    // p_list of this word if exists
+		if(p == NULL) break;       // if not exists break
+
+		pair **Pair = NULL;
+		Pair=malloc(p->plen*sizeof(pair*));
+		for(int i=0;i<p->plen;i++) Pair[i] = NULL;
+		int l=0,pp=0;
+		while(p != NULL){
+			for(int h=0;h<l;h++)
+				if(!strcmp(Pair[h]->path,files[p->text_id])) {
+					pp =h;
+					break;
+				}
+			if(pp>0) {
+				Pair[pp]->score++;
+				pp=0;
+			}
+			else{
+			Pair[l] = malloc(sizeof(pair));
+			strcpy(Pair[l]->path,files[p->text_id]);
+			Pair[l++]->score = 1;
+		}
+
+			p=p->next;
+		}
+
+		/* Find the min */
+		min = *Pair[0];
+		for(int k=1;k<l;k++){
+			if(Pair[k]->score > min.score) min = *Pair[k];
+		}
+	}
+	writeLog("maxcount",s[1],min.path,date);
+
+	char *reply = malloc(sizeof(pair)+sizeof(int));
+	memset(reply,0,sizeof(pair)+sizeof(int));
+	int ll=sizeof(pair);
+
+	memcpy(reply,&ll,sizeof(int));
+	memcpy(&(reply[sizeof(int)]),&min,sizeof(pair));
+
+	return reply;
+}
+
+char *mincount(char **s,int j,char *date,int op){
+	if(j < 2) {
+		printf("Wrong arguments for /search\n");
+		return NULL;
+	}
+	pair min;
+	for(int i=1;i<j;i++){
+		p_list *p = find(s[i]);    // p_list of this word if exists
+		if(p == NULL) break;       // if not exists break
+
+		pair **Pair = NULL;
+		Pair=malloc(p->plen*sizeof(pair*));
+		for(int i=0;i<p->plen;i++) Pair[i] = NULL;
+		int l=0,pp=0;
+		while(p != NULL){
+			for(int h=0;h<l;h++)
+				if(!strcmp(Pair[h]->path,files[p->text_id])) {
+					pp =h;
+					break;
+				}
+			if(pp>0) {
+				Pair[pp]->score++;
+				pp=0;
+			}
+			else{
+			Pair[l] = malloc(sizeof(pair));
+			strcpy(Pair[l]->path,files[p->text_id]);
+			Pair[l++]->score = 1;
+		}
+
+			p=p->next;
+		}
+
+		/* Find the min */
+		min = *Pair[0];
+		for(int k=1;k<l;k++){
+			if((Pair[k]->score)*op <= (min.score)*op) min = *Pair[k];
+		}
+	}
+	writeLog("mincount",s[1],min.path,date);
+
+	char *reply = malloc(sizeof(pair)+sizeof(int));
+	memset(reply,0,sizeof(pair)+sizeof(int));
+	int ll=sizeof(pair);
+
+	memcpy(reply,&ll,sizeof(int));
+	memcpy(&(reply[sizeof(int)]),&min,sizeof(pair));
+
+	return reply;
+}
+
+char *wc(char ***s){
+	int i=0,bytes=0,words=0,lines=0;
+	while(s[i] != NULL){
+		int j=0;
+		while(s[i][j] != NULL){
+			lines++;
+			bytes += strlen(s[i][j]);
+			int tmp=0;
+			getok(s[i][j],&tmp);
+			words += tmp;
+			j++;
+		}
+		i++;
+	}
+	char *reply = malloc(3*sizeof(int)+sizeof(int));
+
+	int sz=3*sizeof(int);
+	memcpy(reply,&sz,sizeof(int));
+	memcpy(&(reply[sizeof(int)]),&bytes,sizeof(int));
+	memcpy(&(reply[2*sizeof(int)]),&words,sizeof(int));
+	memcpy((&reply[3*sizeof(int)]),&lines,sizeof(int));
+
+	return reply;
+}
+
+/*
+ * Calls the right function
+ */
+char * operate( char** s,int j,char *k){
+	if(!strcmp(s[0],"/exit")) return NULL;
+	if(!strcmp(s[0],"/search")) return search(s,j,k);
+	else if(!strcmp(s[0],"/maxcount")) return maxcount(s,j,k);
+	else if(!strcmp(s[0],"/mincount")) return mincount(s,j,k,1);
+	else if(!strcmp(s[0],"/wc")) return wc(str);
+	else {
+		printf("Not such a command available\n");
+		return NULL;
+	}
+}
+
+int sendMsg(char *buf,int *wr,int w){
+	struct pollfd *pfds;
+	pfds = malloc(w*sizeof(struct pollfd));
+
+
+	for(int i=0;i<w;i++){
+		pfds[i].fd = wr[i];
+		pfds[i].events = POLLOUT;
+	}
+
+	int sent,bytesToSend,n;
+
+	/* first read how many bytes to send */
+	memcpy(&bytesToSend,buf,sizeof(int));
+	poll(pfds,w,-1);
+	for(int i=0;i<w;i++){
+		sent = sizeof(int);
+
+		if(pfds[i].revents & POLLOUT){
+			while((n=write(wr[i],(buf),bytesToSend+sizeof(int))) > 0){
+				sent += n;     // Total bytes sent, dont stop until all bytes have been sent
+				if(sent >= bytesToSend+2*sizeof(int)) break;
+			}
+		}
+	}
+	return 0;
+}
+
+int jsearch(char **s,int w){
+	for(int i=0;i<w;i++){
+		if(s[i]!=NULL) printf("%s\n",s[i] );
+	}
+	return 0;
+}
+
+int jmax(char **s,int w){
+	pair *pairs,max;
+	pairs = malloc(w*sizeof(pair));
+	for(int i=0;i<w;i++){
+		if(s[i]==NULL) continue;
+		memcpy(&pairs[i],s[i],sizeof(pair));
+		if(i==0) max = pairs[0];
+		else
+			if(pairs[i].score > max.score) max=pairs[i];
+	}
+	printf("Max: %s\n",max.path );
+	return 0;
+}
+
+int jmin(char **s,int w,int op){
+
+	pair *pairs,min;
+	pairs = malloc(w*sizeof(pair));
+	for(int i=0;i<w;i++){
+		if(s[i] == NULL) continue;
+		memcpy(&pairs[i],s[i],sizeof(pair));
+		if(i==0) min = pairs[0];
+		else
+			if((pairs[i].score)*op < (min.score)*op) min=pairs[i];
+	}
+
+	printf("Min: %s\n",min.path );
+
+	return 0;
+}
+
+int jwc(char **s,int w){
+	int total_b=0,total_w=0,total_l=0;
+	for(int i=0;i<w;i++){
+		int bytes=0,words=0,lines=0;
+		if(s[i]==NULL) continue;
+		memcpy(&bytes,s[i],sizeof(int));
+		memcpy(&words,&(s[i][sizeof(int)]),sizeof(int));
+		memcpy(&lines,&(s[i][2*sizeof(int)]),sizeof(int));
+
+		total_b += bytes;
+		total_w += words;
+		total_l += lines;
+	}
+
+	printf("b->%d w->%d l->%d\n",total_b,total_w,total_l );
+	return 0;
+}
+
+void catcher(int signum) {
+  return;
+}
+
+
+char * readMsg(int *rfd,int w,int d,char *op){
+	struct pollfd *pfds;
+	char **buf = malloc(w*sizeof(char*));
+	int noReply=0;
+	pfds = malloc(w*sizeof(struct pollfd));
+	for(int i=0;i<w;i++){
+		pfds[i].fd = rfd[i];
+		pfds[i].events = POLLIN;
+	}
+
+	struct sigaction sigact;
+	sigemptyset(&sigact.sa_mask);
+	sigact.sa_flags = 0;
+	sigact.sa_handler = catcher;
+	sigaction(SIGALRM, &sigact, NULL);
+
+	/* d=-1 for workers */
+
+   if(d>=0){
+		alarm(d);
+		pause();
+	}
+	poll(pfds,w,d);
+
+	for(int i=0;i<w;i++){
+		if(pfds[i].revents & POLLIN){
+			int bytesToRead,bytesRead=0,k;
+			if(read(rfd[i],&bytesToRead,sizeof(int)) < 0)
+				perror("kokokdoakdoakdoak");
+
+			buf[i] = malloc((bytesToRead+1)*sizeof(char));
+
+			while(bytesRead < bytesToRead){
+				if((	k = read(rfd[i],(buf[i]),bytesToRead))<0)
+					perror("readMsg");
+				else bytesRead += k;
+			}
+			buf[i][bytesToRead]='\0';
+		}
+		else {
+			noReply++;
+			buf[i]=NULL;
+		}
+	}
+
+
+	if(d >= 0) printf("%d/%d workers replied\n",w-noReply,w );
+	if( noReply == w) return NULL;
+
+	/* op is NULL for workers */
+	if(d==-1){
+		for(int i=0;i<w;i++){
+			if(buf[i]!=NULL) {
+				int toks;
+				char **tok = getok(buf[i],&toks);
+				return operate(tok,toks,op);
+			}
+		}
+		return 0;
+	}
+	if(!strcmp(op,"/search")) jsearch(buf,w);
+	else if(!strcmp(op,"/maxcount")) jmax(buf,w);
+	else if(!strcmp(op,"/mincount")) jmin(buf,w,1);
+	else if(!strcmp(op,"/wc")) jwc(buf,w);
+	return *buf;
+}
+
+/*int dead_w(list **paths,int w,pid_t *workers,int *writefd,int *readfd){
+	pid_t p;
+	int status;
+
+	for(int i=0;i<w;i++){
+		exited = 0;
+		if((p=waitpid(workers[i],&status,WNOHANG)) > 0){
+			p = fork();
+			if(p == 0) {
+				int write_fd,read_fd;
+				char fifo_1[32],fifo_2[32];
+				sprintf(fifo_1,"/tmp/fifo1_%d",i);
+				sprintf(fifo_2,"/tmp/fifo2_%d",i);
+
+				if((write_fd = open(fifo_1,1)) < 0){
+					perror("worker:cant open write");
+				}
+				if((read_fd = open(fifo_2,0)) < 0){
+					perror("worker: cant open read fifo");
+				}
+				worker(read_fd,write_fd);
+				return 0;
+			}
+			else {
+				workers[i] = p;
+				char fifo_1[32],fifo_2[32];
+				sprintf(fifo_1,"/tmp/fifo1_%d",i);
+				sprintf(fifo_2,"/tmp/fifo2_%d",i);
+
+				if ( (readfd[i] = open(fifo_1, 0|O_NONBLOCK))  < 0)  {
+					perror("server: can't open read fifo");
+				}
+				if ( (writefd[i] = open(fifo_2, 1))  < 0)  {
+					perror("server: can't open write fifo");
+				}
+				return p;
+			}
+		}
+	}
+	return 0;
+}*/
+
+/*
+ * The Application interface
+ */
+int interface(int *wfd,int *rfd,int w,list **paths,pid_t *workers){
+	char buf[256];
+
+	while(1){
+		printf("Type command: ");
+//		scanf("%m[^\n]s\n",&buf );
+		gets(buf);
+		//getchar();
+
+		int tok_num,d=1;
+		char **tok = getok(buf,&tok_num);
+		if(!strcmp(tok[0],"/search")) d = atoi(tok[tok_num-1]);
+
+		/* Check for dead workers */
+	/*	if(exited)
+			if(dead_w(paths,w,workers,wfd,rfd) == 0) return 0;*/
+
+		if(!strcmp(tok[0],"/exit")) return 0;
+		char *msg = malloc(strlen(buf)+1+sizeof(int));
+		int sz = strlen(buf);
+
+		memcpy(msg,&sz,sizeof(int));
+		memcpy(&msg[sizeof(int)],buf,strlen(buf));
+
+		/* Send query to workers */
+		sendMsg(msg,wfd,w);
+		/* Print replies */
+		readMsg(rfd,w,d,tok[0]);
+
+//		free(buf);
+	}
+//	free(buf);
+	return 0;
+}
+#include  <sys/types.h>
+#include  <sys/stat.h>
+#include <sys/errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <sys/poll.h>
+#include <time.h>
+#include "./trie.h"
+
+#define MAXBUFF 1024
+#define FIFO1   "/tmp/fifo.1"
+#define FIFO2   "/tmp/fifo.2"
+#define PERMS   0666
+
+
+
+/* Insert list node with a path for jobExecutor */
+int insertAtStart(char *p,list **l){
+	if(*l == NULL){
+		(*l) = malloc(sizeof(list));
+		(*l)->path = malloc(strlen(p)+1);
+		strcpy((*l)->path,p);
+		(*l)->next = NULL;
+		return 0;
+	}
+	list *tmp = *l;
+	list *new = malloc(sizeof(list));
+	new->path = malloc((strlen(p)+1));
+	strcpy(new->path,p);
+	new->next = tmp;
+	*l = new;
+	return 0;
+}
+
+void handler(int signum){
+	exited = 1;
+}
+
+int jobExecutor(int *wr,int *rfd,int w,pid_t *workers,char *docfile){
+	int fd,n;
+	char str[50],c;
+	int counter=0,j=0;
+
+	list **paths=NULL	;		// a list whith paths for each worker
+	paths = malloc(w*sizeof(list*));
+	for(int i=0;i<w;i++) paths[i] = NULL;
+	if(paths == NULL) return -1;
+
+//	sleep(2);
+	if((fd = open(docfile,0)) < 0) perror("open");
+
+	struct pollfd *pfds;
+	pfds = malloc(w*sizeof(struct pollfd));
+	for(int i=0;i<w;i++){
+		pfds[i].fd = wr[i];
+		pfds[i].events = POLLOUT|POLLIN;
+	}
+
+	poll(pfds,w,-1);
+
+	/* Send paths to workers */
+	while((n=read(fd,&c,1)) > 0){
+		if(c == '\n') {
+			str[j] = '\0';
+			if((pfds[counter%w].revents & POLLOUT) && write(wr[counter%w],str,j+1)<=0) perror("write error"); 		// j anti j-1?
+			insertAtStart(str,&paths[counter++%w]);
+			printf("f:::: %s\n",str);
+			j=0;
+		}
+		else str[j++] = c;
+//		poll(pfds,w,-1);
+	}
+	sleep(1);
+
+	/* All paths have been sent, now send STOP to let them know */
+//	poll(pfds,w,-1);
+	for(int i=0;i<w;i++){
+		if(pfds[i].revents & POLLOUT) write(wr[i],"stop",strlen("stop")+1);
+//		poll(pfds,w,-1);
+	}
+//	sleep(1);
+	/* Here comes the user interface */
+	interface(wr,rfd,w,paths,workers);
+
+	return 0;
+}
+
+
+
+int worker(int rfd,int wfd){
+	int n;
+	char buff[1024];
+	char s[32];
+	char **dirs;	// Array with the paths
+	int d_sz = 16;	// Size of dirs, if grows more than 16 paths, realloc
+	int d_num=0; 	// Total dirs
+	time_t arrival;
+	sprintf(s,"./log/worker%d",getpid());
+	fp = fopen(s,"a");
+
+	dirs = malloc(d_sz*sizeof(char*));
+
+	while((n=read(rfd,buff,MAXBUFF)) > 0){
+		/* Here open files, create map and trie */
+		if(d_num > d_sz){
+			d_sz *= 2;
+			dirs = realloc(dirs,d_sz);
+			if(dirs == NULL) perror("realloc failed");
+		}
+
+		if(!strcmp(buff,"stop")) break;
+		dirs[d_num] = malloc(strlen(buff)+1);
+//		printf("d:::: %s\n",dirs[d_num-1]);
+		strcpy(dirs[d_num++],buff);
+		printf("d:::: %s\n",dirs[d_num-1]);
+	}
+
+	init(dirs,d_num);		// Initialize structures like trie and map
+
+	/* Now, that files are read, read the query */
+	while(1){
+		/* Tokenize buffer, read the first token to execute the query */
+		arrival = time(NULL);
+		char * c_time = ctime(&arrival);
+		char *query= readMsg(&rfd,1,-1,c_time);
+		if(query == NULL) return 0;
+		sendMsg(query,&wfd,1);
+	}
+	fclose(fp);
+
+	return 0;
+}
+
+
+int main(int argc, char * const argv[]) {
+	int *readfd,*writefd,w;
+	pid_t p,workers[5];
+	char *docfile;
+
+	mkdir("./log",0777);
+
+	mygetopt(argc,argv,&w,&docfile);
+	readfd = malloc(w*sizeof(int));
+	writefd = malloc(w*sizeof(int));
+
+
+	for(int i=0;i<w;i++){
+		char fifo_1[32],fifo_2[32];
+
+		/*===== Create fifos  =====*/
+		sprintf(fifo_1,"./fifo1_%d",i);
+		sprintf(fifo_2,"./fifo2_%d",i);
+
+		if((mkfifo(fifo_1,PERMS) < 0) && (errno != EEXIST)){
+			perror("cant create fifo");
+		}
+		if((mkfifo(fifo_2,PERMS) < 0) && (errno != EEXIST)){
+			perror("cant create fifo");
+		}
+	}
+	/*======= fork() w Workers =======*/
+	int read_fd,write_fd;
+	for(int i=0;i<w;i++){
+		char fifo_1[32],fifo_2[32];
+
+		p = fork();
+		sprintf(fifo_1,"./fifo1_%d",i);
+		sprintf(fifo_2,"./fifo2_%d",i);
+		if(p == 0) {
+			/*======	Open fifos for workers ======*/
+			if((write_fd = open(fifo_1,1)) < 0){
+				perror("worker:cant open write");
+			}
+			if((read_fd = open(fifo_2,0)) < 0){
+				perror("worker: cant open read fifo");
+			}
+			break;
+		}
+		else if(p > 0){
+			/*	Open fifo for jobExecutor */
+			workers[i]=p;
+			if ( (readfd[i] = open(fifo_1, 0|O_NONBLOCK))  < 0)  {
+				perror("server: can't open read fifo");
+			}
+			if ( (writefd[i] = open(fifo_2, 1))  < 0)  {
+				perror("server: can't open write fifo");
+			}
+		}
+		else {
+			perror("fork:failed");
+		}
+	}
+	if(p==0) {
+		worker(read_fd,write_fd);
+		close(write_fd);
+		close(read_fd);
+		return 0;
+	}
+	else {
+		jobExecutor(writefd,readfd,w,workers,docfile);
+		for(int i=0;i<w;i++){
+			char fifo_1[32],fifo_2[32];
+		//	int status;
+
+			sprintf(fifo_1,"./fifo1_%d",i);
+			sprintf(fifo_2,"./fifo2_%d",i);
+		//	waitpid(workers[i],&status,0);
+			close(writefd[i]);
+			close(readfd[i]);
+			unlink(fifo_1);
+			unlink(fifo_2);
+		}
+	}
+
+	return 0;
+}
+#include  <stdio.h>
+#include  <sys/types.h>
+#include  <dirent.h>
+#include <stdlib.h>
+#include <string.h>
+#include "./trie.h"
+
+char **get(const char* file);
+char ***map_(char **dirname,int dir_num,unsigned int *files_num,char ***);
+
+
+int init(char **d,int d_n){
+	//char *d="./ff";
+	unsigned int fn;
+	int inn;
+	char *token,*tmp;
+	str = map_(d,d_n,&fn,&files);
+	int j=0;
+	for(int i=0;i<fn;i++){	// for each file
+		j=0;
+		if(str[i] == NULL) break;
+		while(str[i][j] != NULL){	// for each line
+			tmp =(char *) malloc(sizeof(char)*(strlen(str[i][j])+1));
+			strcpy(tmp,str[i][j]);
+			token = strtok(tmp," ");
+			while(token != NULL){
+				if(token[strlen(token)-1] =='\n' || token[strlen(token)-1] ==' ') token[strlen(token)-1]='\0'; // ==
+				if((inn=insert(token,i,j))<0) printf("ERROR %d\n", inn);
+            token  = strtok(NULL," ");
+			}
+			j++;
+         free(tmp);
+         free(token);
+		}
+	}
+	return 0;
+
+}
+
+/* map returns a map to texts */
+char ***map_(char **dirname,int dir_num,unsigned int *files_num,char ***fs){
+	DIR *dir_ptr;
+	struct dirent *direntp;
+	char ***map,**files;
+
+	size_t sz=32;
+	map = (char***) malloc(sz*sizeof(char**));     // 32 places for texts, if more -> realloc
+	files = malloc(sz*sizeof(char*));
+	unsigned int i=0;
+	for(int j=0;j<dir_num;j++){
+
+		/* open directory j */
+		printf("%s\n",dirname[j] );
+		if ( ( dir_ptr = opendir(dirname[j])) == NULL )
+			fprintf(stderr, "cannot hj jh jh  open %s\n",dirname[j]);
+		else {
+			while ( ( direntp=readdir(dir_ptr) ) != NULL ){
+				if (direntp->d_ino == 0 ) continue;
+
+				/* reallocate space when sz texts reached */
+				if(i >= sz) {
+					sz *= 2;
+					map = (char***) realloc(map,sz*sizeof(char ***));
+					files = realloc(files,sz*sizeof(char*));
+					if(map == NULL){
+						perror("Realloc failed");
+						return NULL;
+					}
+				}
+
+				/* store each text to map */
+				if(direntp-> d_type != DT_DIR) {   // ignore "." and ".."
+					char *file = malloc(strlen(dirname[j])+strlen(direntp->d_name)+2);
+					sprintf(file,"%s/%s",dirname[j],direntp->d_name);
+					map[i]=get(file);
+					files[i] = malloc(sizeof(char)*(strlen(file)+1));
+					strcpy(files[i++],file);
+				}
+			}
+			closedir(dir_ptr);
+		}
+	}
+	map[i]=NULL;
+	*files_num = i;
+	*fs = files;
+	return map;
+}
+
+	/*
+	 * Return the # of texts
+	 */
+	int getLinesNumber(FILE *fp){
+		char c;
+		int count = 0;
+		while(!feof(fp)){
+			c = fgetc(fp);
+			if(c == '\n') count++;
+		}
+		fseek(fp,0,0);
+		return ++count;        // ++count becuase the last line has not a '\n' in the end
+	}
+
+	char **get(const char* file){
+
+		FILE *fp;
+	//	char kk[32];
+		//sprintf(kk,"./ff/%s",file);
+		fp = fopen(file,"r");
+		if(fp == NULL) {
+			perror("GET file not open");
+			printf("%s\n",file);
+			return NULL;
+		}
+		int i=0,j=0;
+		char c;
+		char **str;
+
+		int n = getLinesNumber(fp);
+		str = (char**) malloc(n*sizeof(char*));
+		for(int k=0;k<n;k++) str[k] = NULL;
+
+		while(i++<n ){
+			size_t a;
+			getline(&(str[j]),&a,fp);
+
+			if((c=fgetc(fp)) == EOF) break;
+			else ungetc(c,fp);
+			j++;
+		}
+		str[i] = NULL;
+		fclose(fp);
+
+
+		return str;
+	}
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include "./trie.h"
+#include <poll.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/wait.h>
+
+
+/*
+ * Returns tokens and their #
+ */
+char **getok(char* ss,int *k){
+	char **st;
+	int count=0;
+	char *token;
+	for(unsigned int i=0;i<=strlen(ss);i++){
+		if(ss[i] == ' ' || ss[i] == '\0') count++;
+	}
+	char *s = malloc(strlen(ss)+1);
+	strcpy(s,ss);
+	st = (char**) malloc(count*sizeof(char*));
+
+	token = strtok(s," ");
+	int j=0;
+	while(token != NULL) {
+		st[j] = (char*) malloc(sizeof(char)*(strlen(token)+1));
+		strcpy(st[j++],token);
+		token = strtok(NULL," ");
+		if(j>11) break;
+	}
+	*k=j;
+	free(token);
+	return st;
+
+}
+
+int writeLog(char *op,char *keyword,char *path,char *t){
+	t[strlen(t)-1]=' ';
+	fprintf(fp, "%s : %s : %s : %s\n",t,op,keyword,path );
+	return 0;
+}
+/*
+ * Searching on trie, implementation of /search feature
+ */
+char * search(char** s,int j,char *date){
+	if(j < 4) {
+		printf("Wrong arguments for /search\n");
+		return NULL;
+	}
+
+	char *reply;
+	int sz=512;  // first, allocate 512 bytes for reply, realloc if needed
+	int total=0;   // total bytes to be written
+
+	reply = malloc(sz*sizeof(char));
+	memset(reply,'\0',sz);
+
+
+	for(int i=1;i<j-2;i++){
+		p_list *p = find(s[i]);    // p_list of this word if exists
+		if(p == NULL) continue;       // if not exists break
+
+		while(p != NULL) {
+			total += sizeof(int) + strlen(files[p->text_id]) \
+				 + strlen(str[p->text_id][p->line]) +5; // Bcs reply is Path Line# Line_Content  , +4 bcs of ":",'\n','\0'
+			if(total >= sz) {
+				sz *= 2;    // Double size
+				if((reply=realloc(reply,sz)) == NULL) perror("realloc failed");
+			}
+
+			sprintf(reply,"%s%s:%d:%s\n",reply,files[p->text_id],p->line,str[p->text_id][p->line]);
+
+			/* Keep log */
+			writeLog("search",s[i],files[p->text_id],date);
+			p = p->next;
+		}
+	}
+
+	char *msg = malloc(strlen(reply)+sizeof(int));
+	int szi = strlen(reply);
+	memcpy(msg,&szi,sizeof(int));
+	memcpy(&(msg[sizeof(int)]),reply,szi);
+	return msg;
+}
+
+char *maxcount(char **s,int j,char *date){
+	if(j < 2) {
+		printf("Wrong arguments for /search\n");
+		return NULL;
+	}
+	pair min;
+	for(int i=1;i<j;i++){
+		p_list *p = find(s[i]);    // p_list of this word if exists
+		if(p == NULL) break;       // if not exists break
+
+		pair **Pair = NULL;
+		Pair=malloc(p->plen*sizeof(pair*));
+		for(int i=0;i<p->plen;i++) Pair[i] = NULL;
+		int l=0,pp=0;
+		while(p != NULL){
+			for(int h=0;h<l;h++)
+				if(!strcmp(Pair[h]->path,files[p->text_id])) {
+					pp =h;
+					break;
+				}
+			if(pp>0) {
+				Pair[pp]->score++;
+				pp=0;
+			}
+			else{
+			Pair[l] = malloc(sizeof(pair));
+			strcpy(Pair[l]->path,files[p->text_id]);
+			Pair[l++]->score = 1;
+		}
+
+			p=p->next;
+		}
+
+		/* Find the min */
+		min = *Pair[0];
+		for(int k=1;k<l;k++){
+			if(Pair[k]->score > min.score) min = *Pair[k];
+		}
+	}
+	writeLog("maxcount",s[1],min.path,date);
+
+	char *reply = malloc(sizeof(pair)+sizeof(int));
+	memset(reply,0,sizeof(pair)+sizeof(int));
+	int ll=sizeof(pair);
+
+	memcpy(reply,&ll,sizeof(int));
+	memcpy(&(reply[sizeof(int)]),&min,sizeof(pair));
+
+	return reply;
+}
+
+char *mincount(char **s,int j,char *date,int op){
+	if(j < 2) {
+		printf("Wrong arguments for /search\n");
+		return NULL;
+	}
+	pair min;
+	for(int i=1;i<j;i++){
+		p_list *p = find(s[i]);    // p_list of this word if exists
+		if(p == NULL) break;       // if not exists break
+
+		pair **Pair = NULL;
+		Pair=malloc(p->plen*sizeof(pair*));
+		for(int i=0;i<p->plen;i++) Pair[i] = NULL;
+		int l=0,pp=0;
+		while(p != NULL){
+			for(int h=0;h<l;h++)
+				if(!strcmp(Pair[h]->path,files[p->text_id])) {
+					pp =h;
+					break;
+				}
+			if(pp>0) {
+				Pair[pp]->score++;
+				pp=0;
+			}
+			else{
+			Pair[l] = malloc(sizeof(pair));
+			strcpy(Pair[l]->path,files[p->text_id]);
+			Pair[l++]->score = 1;
+		}
+
+			p=p->next;
+		}
+
+		/* Find the min */
+		min = *Pair[0];
+		for(int k=1;k<l;k++){
+			if((Pair[k]->score)*op <= (min.score)*op) min = *Pair[k];
+		}
+	}
+	writeLog("mincount",s[1],min.path,date);
+
+	char *reply = malloc(sizeof(pair)+sizeof(int));
+	memset(reply,0,sizeof(pair)+sizeof(int));
+	int ll=sizeof(pair);
+
+	memcpy(reply,&ll,sizeof(int));
+	memcpy(&(reply[sizeof(int)]),&min,sizeof(pair));
+
+	return reply;
+}
+
+char *wc(char ***s){
+	int i=0,bytes=0,words=0,lines=0;
+	while(s[i] != NULL){
+		int j=0;
+		while(s[i][j] != NULL){
+			lines++;
+			bytes += strlen(s[i][j]);
+			int tmp=0;
+			getok(s[i][j],&tmp);
+			words += tmp;
+			j++;
+		}
+		i++;
+	}
+	char *reply = malloc(3*sizeof(int)+sizeof(int));
+
+	int sz=3*sizeof(int);
+	memcpy(reply,&sz,sizeof(int));
+	memcpy(&(reply[sizeof(int)]),&bytes,sizeof(int));
+	memcpy(&(reply[2*sizeof(int)]),&words,sizeof(int));
+	memcpy((&reply[3*sizeof(int)]),&lines,sizeof(int));
+
+	return reply;
+}
+
+/*
+ * Calls the right function
+ */
+char * operate( char** s,int j,char *k){
+	if(!strcmp(s[0],"/exit")) return NULL;
+	if(!strcmp(s[0],"/search")) return search(s,j,k);
+	else if(!strcmp(s[0],"/maxcount")) return maxcount(s,j,k);
+	else if(!strcmp(s[0],"/mincount")) return mincount(s,j,k,1);
+	else if(!strcmp(s[0],"/wc")) return wc(str);
+	else {
+		printf("Not such a command available\n");
+		return NULL;
+	}
+}
+
+int sendMsg(char *buf,int *wr,int w){
+	struct pollfd *pfds;
+	pfds = malloc(w*sizeof(struct pollfd));
+
+
+	for(int i=0;i<w;i++){
+		pfds[i].fd = wr[i];
+		pfds[i].events = POLLOUT;
+	}
+
+	int sent,bytesToSend,n;
+
+	/* first read how many bytes to send */
+	memcpy(&bytesToSend,buf,sizeof(int));
+	poll(pfds,w,-1);
+	for(int i=0;i<w;i++){
+		sent = sizeof(int);
+
+		if(pfds[i].revents & POLLOUT){
+			while((n=write(wr[i],(buf),bytesToSend+sizeof(int))) > 0){
+				sent += n;     // Total bytes sent, dont stop until all bytes have been sent
+				if(sent >= bytesToSend+2*sizeof(int)) break;
+			}
+		}
+	}
+	return 0;
+}
+
+int jsearch(char **s,int w){
+	for(int i=0;i<w;i++){
+		if(s[i]!=NULL) printf("%s\n",s[i] );
+	}
+	return 0;
+}
+
+int jmax(char **s,int w){
+	pair *pairs,max;
+	pairs = malloc(w*sizeof(pair));
+	for(int i=0;i<w;i++){
+		if(s[i]==NULL) continue;
+		memcpy(&pairs[i],s[i],sizeof(pair));
+		if(i==0) max = pairs[0];
+		else
+			if(pairs[i].score > max.score) max=pairs[i];
+	}
+	printf("Max: %s\n",max.path );
+	return 0;
+}
+
+int jmin(char **s,int w,int op){
+
+	pair *pairs,min;
+	pairs = malloc(w*sizeof(pair));
+	for(int i=0;i<w;i++){
+		if(s[i] == NULL) continue;
+		memcpy(&pairs[i],s[i],sizeof(pair));
+		if(i==0) min = pairs[0];
+		else
+			if((pairs[i].score)*op < (min.score)*op) min=pairs[i];
+	}
+
+	printf("Min: %s\n",min.path );
+
+	return 0;
+}
+
+int jwc(char **s,int w){
+	int total_b=0,total_w=0,total_l=0;
+	for(int i=0;i<w;i++){
+		int bytes=0,words=0,lines=0;
+		if(s[i]==NULL) continue;
+		memcpy(&bytes,s[i],sizeof(int));
+		memcpy(&words,&(s[i][sizeof(int)]),sizeof(int));
+		memcpy(&lines,&(s[i][2*sizeof(int)]),sizeof(int));
+
+		total_b += bytes;
+		total_w += words;
+		total_l += lines;
+	}
+
+	printf("b->%d w->%d l->%d\n",total_b,total_w,total_l );
+	return 0;
+}
+
+void catcher(int signum) {
+  return;
+}
+
+
+char * readMsg(int *rfd,int w,int d,char *op){
+	struct pollfd *pfds;
+	char **buf = malloc(w*sizeof(char*));
+	int noReply=0;
+	pfds = malloc(w*sizeof(struct pollfd));
+	for(int i=0;i<w;i++){
+		pfds[i].fd = rfd[i];
+		pfds[i].events = POLLIN;
+	}
+
+	struct sigaction sigact;
+	sigemptyset(&sigact.sa_mask);
+	sigact.sa_flags = 0;
+	sigact.sa_handler = catcher;
+	sigaction(SIGALRM, &sigact, NULL);
+
+	/* d=-1 for workers */
+
+   if(d>=0){
+		alarm(d);
+		pause();
+	}
+	poll(pfds,w,d);
+
+	for(int i=0;i<w;i++){
+		if(pfds[i].revents & POLLIN){
+			int bytesToRead,bytesRead=0,k;
+			if(read(rfd[i],&bytesToRead,sizeof(int)) < 0)
+				perror("kokokdoakdoakdoak");
+
+			buf[i] = malloc((bytesToRead+1)*sizeof(char));
+
+			while(bytesRead < bytesToRead){
+				if((	k = read(rfd[i],(buf[i]),bytesToRead))<0)
+					perror("readMsg");
+				else bytesRead += k;
+			}
+			buf[i][bytesToRead]='\0';
+		}
+		else {
+			noReply++;
+			buf[i]=NULL;
+		}
+	}
+
+
+	if(d >= 0) printf("%d/%d workers replied\n",w-noReply,w );
+	if( noReply == w) return NULL;
+
+	/* op is NULL for workers */
+	if(d==-1){
+		for(int i=0;i<w;i++){
+			if(buf[i]!=NULL) {
+				int toks;
+				char **tok = getok(buf[i],&toks);
+				return operate(tok,toks,op);
+			}
+		}
+		return 0;
+	}
+	if(!strcmp(op,"/search")) jsearch(buf,w);
+	else if(!strcmp(op,"/maxcount")) jmax(buf,w);
+	else if(!strcmp(op,"/mincount")) jmin(buf,w,1);
+	else if(!strcmp(op,"/wc")) jwc(buf,w);
+	return *buf;
+}
+
+/*int dead_w(list **paths,int w,pid_t *workers,int *writefd,int *readfd){
+	pid_t p;
+	int status;
+
+	for(int i=0;i<w;i++){
+		exited = 0;
+		if((p=waitpid(workers[i],&status,WNOHANG)) > 0){
+			p = fork();
+			if(p == 0) {
+				int write_fd,read_fd;
+				char fifo_1[32],fifo_2[32];
+				sprintf(fifo_1,"/tmp/fifo1_%d",i);
+				sprintf(fifo_2,"/tmp/fifo2_%d",i);
+
+				if((write_fd = open(fifo_1,1)) < 0){
+					perror("worker:cant open write");
+				}
+				if((read_fd = open(fifo_2,0)) < 0){
+					perror("worker: cant open read fifo");
+				}
+				worker(read_fd,write_fd);
+				return 0;
+			}
+			else {
+				workers[i] = p;
+				char fifo_1[32],fifo_2[32];
+				sprintf(fifo_1,"/tmp/fifo1_%d",i);
+				sprintf(fifo_2,"/tmp/fifo2_%d",i);
+
+				if ( (readfd[i] = open(fifo_1, 0|O_NONBLOCK))  < 0)  {
+					perror("server: can't open read fifo");
+				}
+				if ( (writefd[i] = open(fifo_2, 1))  < 0)  {
+					perror("server: can't open write fifo");
+				}
+				return p;
+			}
+		}
+	}
+	return 0;
+}*/
+
+/*
+ * The Application interface
+ */
+int interface(int *wfd,int *rfd,int w,list **paths,pid_t *workers){
+	char buf[256];
+
+	while(1){
+		printf("Type command: ");
+//		scanf("%m[^\n]s\n",&buf );
+		gets(buf);
+		//getchar();
+
+		int tok_num,d=1;
+		char **tok = getok(buf,&tok_num);
+		if(!strcmp(tok[0],"/search")) d = atoi(tok[tok_num-1]);
+
+		/* Check for dead workers */
+	/*	if(exited)
+			if(dead_w(paths,w,workers,wfd,rfd) == 0) return 0;*/
+
+		if(!strcmp(tok[0],"/exit")) return 0;
+		char *msg = malloc(strlen(buf)+1+sizeof(int));
+		int sz = strlen(buf);
+
+		memcpy(msg,&sz,sizeof(int));
+		memcpy(&msg[sizeof(int)],buf,strlen(buf));
+
+		/* Send query to workers */
+		sendMsg(msg,wfd,w);
+		/* Print replies */
+		readMsg(rfd,w,d,tok[0]);
+
+//		free(buf);
+	}
+//	free(buf);
+	return 0;
+}
