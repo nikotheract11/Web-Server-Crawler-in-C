@@ -71,6 +71,7 @@ int Remove(Queue *Q, ItemType F,int type)
 
       Temp=Q->Front;
       Q->Front=Temp->Link;
+      free(Temp->Item);
       free(Temp);
       if (Q->Front==NULL) Q->Rear=NULL;
 
@@ -84,13 +85,17 @@ int search_q(Queue Q,char *str){
   QueueNode *tmp = Q.Front;
   while(tmp != NULL){
     char *buf=malloc(1024);
+    char *ptr = buf;
     strcpy(buf,(char*)tmp->Item);
     while(buf[0] == ' ') buf = (char*)((long) buf + 1);
     int a=strlen(buf);
     while(buf[a-1]== ' ') buf[--a] = '\0';
-    if (!strcmp(str,(char*)tmp->Item)) return 1; // found str
+    if (!strcmp(str,(char*)tmp->Item)) {
+      free(ptr);
+      return 1; // found str
+   }
     tmp = tmp->Link;
-    free(buf);
+    free(ptr);
   }
   return 0; // not found
 

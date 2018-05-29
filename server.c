@@ -15,7 +15,7 @@
 #include <poll.h>
 #include <time.h>
 
-#include "./arrays/QueueInterface.h"
+#include "./linked-lists/QueueInterface.h"
 
 Queue fds;    /* Queue holding fd's of sockets (requests) to be served */
 
@@ -40,7 +40,7 @@ int mygetopt(int argc, char * const argv[], int *port,int *portc,int *threads,ch
 
 int main(int argc, char *argv[]) {
 
-    pthread_cond_init(&cv, NULL); 
+    pthread_cond_init(&cv, NULL);
     start = time(NULL);
     int port, c_port, thread_count=0, sock, newsock;
     mygetopt(argc,argv,&port,&c_port,&thread_count,&root_dir);
@@ -56,7 +56,7 @@ int main(int argc, char *argv[]) {
 
    /* Initialize Queue */
     pthread_mutex_lock(&q_mutex);
-    InitializeQueue(&fds); 
+    InitializeQueue(&fds);
     pthread_mutex_unlock(&q_mutex);
 
     if (argc != 9) {
@@ -112,7 +112,7 @@ int main(int argc, char *argv[]) {
 
       /* Insert socket to the queue so that a thread serves it */
          pthread_mutex_lock(&q_mutex);
-         Insert(newsock,&fds);
+         Insert(&newsock,&fds,0,sizeof(int));
          count++;
          pthread_mutex_unlock(&q_mutex);
          pthread_cond_signal(&cv);
@@ -242,8 +242,8 @@ void serve_request(int sock){
 /* The starting point of threads */
 void *serve_th(){
    int sock;
-   
-   while(1){ 
+
+   while(1){
       pthread_mutex_lock(&q_mutex);
 
       while(count < 1){
@@ -262,10 +262,10 @@ void *serve_th(){
           pthread_exit(NULL);
         }
       }
-      Remove(&fds,&sock);
+      Remove(&fds,&sock,0);
       count--;
       pthread_mutex_unlock(&q_mutex);
-      
+
 
 
       serve_request(sock);
@@ -348,7 +348,7 @@ void perror_exit(char *message) {
 }
 
 int mygetopt(int argc, char * const argv[], int *port,int *portc,int *threads,char **root_dir){
-   int opt,k;
+   int opt;
    char *file;
    while((opt = getopt(argc,argv,":d:c:p:t:") )!= -1)   {
       switch (opt) {
@@ -366,7 +366,7 @@ int mygetopt(int argc, char * const argv[], int *port,int *portc,int *threads,ch
             *port = atoi(optarg);
             printf("port=%d\n",*port);
             break;
-         
+
          case 't':
           *threads = atoi(optarg);
           printf("th_num=%d\n",*threads );

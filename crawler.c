@@ -31,14 +31,19 @@ Queue urls;
 pthread_mutex_t  q_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cv;
 int counter;
+int active_threads;
+
 time_t start;
 int PAGES;
 int BYTES;
 int EXIT;
 
+char *root_dir;
+
 void *thread_r();
 void analyze_site(char *file);
 void server_command(int sock);
+int mygetopt2(int argc, char * const argv[], int *port,int *portc,int *threads,char **root_dir,char **host,char **s_url);
 
 void perror_exit(char *message) {
     perror(message);
@@ -52,11 +57,15 @@ void create_threads(int thread_counter, pthread_t *threads,struct arg *args){
          }
       }
 }
-int main(int argc, char const *argv[]) {
-   int port, sock_c,c_port;
-   pthread_cond_init(&cv, NULL); 
+int main(int argc, char * const argv[]) {
+   int port, sock_c,c_port,thread_counter=0;
+   char *host,*s_url;
+
+   mygetopt2(argc,argv,&port,&c_port,&thread_counter,&root_dir,&host,&s_url);
+
+   pthread_cond_init(&cv, NULL);
    pthread_mutex_lock(&q_mutex);
-   InitializeQueue(&urls); 
+   InitializeQueue(&urls);
    pthread_mutex_unlock(&q_mutex);
    signal(SIGPIPE, SIG_IGN);
 
@@ -64,11 +73,11 @@ int main(int argc, char const *argv[]) {
    struct sockaddr_in server,server2,client;
    struct sockaddr *serverptr = (struct sockaddr*)&server;
    struct sockaddr *serverptr2=(struct sockaddr *)&server2;
-   socklen_t clientlen;
+   socklen_t clientlen=0;
    struct sockaddr *clientptr=(struct sockaddr *)&client;
 
    struct hostent *rem;
-   int thread_counter = 3;  // atoi(argv[1])
+//   int thread_counter = 3;  // atoi(argv[1])
    pthread_t *threads = malloc(thread_counter*sizeof(pthread_t));
 
    if (argc <= 3) {
@@ -76,9 +85,10 @@ int main(int argc, char const *argv[]) {
         exit(1);}
   /* Create socket */
   /* Find server address */
-   if ((rem = gethostbyname(argv[1])) == NULL) {
+   if ((rem = gethostbyname(host)) == NULL) {
      herror("gethostbyname"); exit(1);
    }
+   free(host);
    if((sock_c = socket(AF_INET,SOCK_STREAM,0)) < 0)
      perror_exit("sock_c");
 
@@ -86,25 +96,27 @@ int main(int argc, char const *argv[]) {
     if (setsockopt(sock_c, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0)
         perror("setsockopt(SO_REUSEADDR) failed");
 
-   port = atoi(argv[2]); /*Convert port number to integer*/
-   c_port = atoi(argv[4]);
+   //port = atoi(argv[2]); /*Convert port number to integer*/
+   //c_port = atoi(argv[4]);
    server.sin_family = AF_INET;       /* Internet domain */
    memcpy(&server.sin_addr, rem->h_addr, rem->h_length);
    server.sin_port = htons(port);         /* Server port */
 
    /* A struct to store infos about the connection */
-   struct arg *args = malloc(sizeof(struct arg)) ;
+   //struct arg *args = malloc(sizeof(struct arg)) ;
+   struct arg args;
    //args->sock = sock;
-   args->serverptr = serverptr;
-   args->len = sizeof(server);
+   args.serverptr = serverptr;
+   args.len = sizeof(server);
 
    /* Create thread_pool */
-   create_threads(3,threads,args);
+   create_threads(thread_counter,threads,&args);
+   //free(args);
 
    /* insert starting url to the queue */
    pthread_mutex_lock(&q_mutex);
-   printf("Start crawling from site: %s\n",argv[3] );
-   Insert((char*)argv[3],&urls,1,strlen(argv[3])+1);
+   printf("Start crawling from site: %s\n",s_url );
+   Insert((char*)s_url,&urls,1,strlen(s_url)+1);
    counter++;
    pthread_mutex_unlock(&q_mutex);
    pthread_cond_signal(&cv);
@@ -122,13 +134,23 @@ int main(int argc, char const *argv[]) {
    printf("sock_c=%d,c_port=%d\n",sock_c,c_port );
 
    while(1){
-       if((newsock_c = accept(sock_c,clientptr,&clientlen)) < 0) 
+       if((newsock_c = accept(sock_c,clientptr,&clientlen)) < 0)
         perror_exit("accept");
       server_command(newsock_c);
       close(newsock_c);
       if(EXIT == 1) break;
     }
+
+   int *ret;
+   for(int i=0;i<thread_counter;i++){
+     pthread_cond_signal(&cv);
+     pthread_join(threads[i],(void**)&ret);
+     pthread_cond_signal(&cv);
+   }
    close(sock_c);
+   free(root_dir);
+   free(s_url);
+   free(threads);
    return 0;
 }
 
@@ -148,7 +170,7 @@ void *request(int sock, char *url){
       strcpy(tok[i++],token);    // store tokens here
       token = strtok(NULL, del);
    }
-   char *root = "/home/nikos/Web-Server-Crawler-in-C/scr";    //======== DYNAMIC 
+   char *root = "/home/nikos/Web-Server-Crawler-in-C/scr";    //======== DYNAMIC
 
    char *dir = malloc(strlen(tok[i-2])+ strlen(root)+1+2);
    sprintf(dir,"%s/%s/",root,tok[i-2]);
@@ -203,12 +225,17 @@ void *request(int sock, char *url){
    }
    fclose(fp);
    analyze_site(filename);
+   free(dir);
+   free(file);
+   free(filename);
+   free(buf);
+   for(int k=0;k<i;k++) free(tok[k]);
    return NULL;
 }
 
 void *thread_r(struct arg *args){
 
-   int flag=0,sock;
+   int sock;
    struct sockaddr *serverptr ;
    size_t len;
 
@@ -222,9 +249,15 @@ void *thread_r(struct arg *args){
       pthread_mutex_lock(&q_mutex);
       while(counter < 1){
          pthread_cond_wait(&cv, &q_mutex);
+         if(EXIT == 1){
+           pthread_mutex_unlock(&q_mutex);
+           pthread_cond_signal(&cv);
+           pthread_exit(NULL);
+         }
       }
       Remove(&urls,buf,1);
       counter--;
+      active_threads++;
       pthread_mutex_unlock(&q_mutex);
 
       if((sock = socket(AF_INET,SOCK_STREAM,0)) < 0)
@@ -232,11 +265,15 @@ void *thread_r(struct arg *args){
 
       if (connect(sock, serverptr, len) < 0)
   	      perror_exit("connect");
+
+
       request(sock,buf);
-
       close(sock);
+      sleep(1);
+      pthread_mutex_lock(&q_mutex);
+      active_threads--;
+      pthread_mutex_unlock(&q_mutex);
 
-      flag=0;
    }
    /* do stuff with sock */
 
@@ -246,10 +283,11 @@ void *thread_r(struct arg *args){
 
 void analyze_site(char *file){
    int fd = open(file,O_RDONLY);
-   char *str;
+   char *str,*ptr;
    int sz = lseek(fd,0,SEEK_END);
    lseek(fd,0,SEEK_SET);
    str = malloc(sz+1);
+   ptr=str;
    read(fd,str,sz);
    long a;
    char *s;
@@ -265,7 +303,7 @@ void analyze_site(char *file){
       s[a] = '\0';
       while (s[a-1] == ' ') s[--a] = '\0';
       while (s[0] == ' ') s = (char *) ((long) s + 1);
-      
+
 
 
       pthread_mutex_lock(&q_mutex);
@@ -285,9 +323,11 @@ void analyze_site(char *file){
       }
       pthread_mutex_unlock(&q_mutex);
       pthread_cond_signal(&cv);
+      free(kl);
 
    }
    close(fd);
+   free(ptr);
 }
 
 char *conv(long n){
@@ -307,16 +347,21 @@ char *conv(long n){
    return buf;
 }
 
-
-void stats(){
+void stats(int sock){
    printf("---> STATS <---\n");
    time_t cur = time(NULL);
    char* a=conv(difftime(cur,start));
-   printf("server up for %s, served %d pages and %d bytes\n",a,PAGES,BYTES );
+   char rep[2048];
+   memset(rep,'\0',2048);
+   sprintf(rep,"server up for %s, served %d pages and %d bytes\n",a,PAGES,BYTES );
+   if(write(sock,rep,strlen(rep)) < 0) perror("write");
    free(a);
 }
-void shutd(){
+void shutd(int sock){
    printf("---> Server is shutting down! <---\nIn 3\n");
+   char msg[256];
+   strcpy(msg,"---> Server is shutting down! <---\n");
+   if(write(sock,msg,strlen(msg)) < 0) perror("write");
    sleep(1);
    printf("2\n");
    sleep(1);
@@ -336,15 +381,21 @@ void server_command(int sock){
    if(n==0) break;
    buf[n-2] = '\0';
 
-   if(!strcmp(buf,"STATS")) stats();
+   if(!strcmp(buf,"STATS")) stats(sock);
    else if(!strcmp(buf,"SHUTDOWN")) {
-      shutd();
+      shutd(sock);
       break;
    }
 
    /* Just this changed || */
    /*                   \/ */
    else {
+      if(counter > 0 || active_threads > 0) {
+         char msg[128];
+         strcpy(msg,"Crawling not finished yet\n");
+         write(sock,msg,strlen(msg));
+         return;
+      }
       char str[2048];
       strcpy(str,buf);
       int i = strlen(buf);
@@ -356,4 +407,44 @@ void server_command(int sock){
 
    }
  }
+}
+
+
+int mygetopt2(int argc, char * const argv[], int *port,int *portc,int *threads,char **root_dir,char **host,char **s_url){
+   int opt;
+   char *file;
+
+   *s_url = malloc(strlen(argv[argc-1])+1);
+   strcpy(*s_url,argv[argc-1]);
+
+   while((opt = getopt(argc,argv,":d:c:p:t:h:") )!= -1)   {
+      switch (opt) {
+         case 'd':
+            file = (char*) malloc((strlen(optarg)+1)*sizeof(char));
+            strcpy(file,optarg);
+            printf("root_dir:%s\n", file);
+            break;
+
+         case 'c':
+            *portc=atoi(optarg);
+            printf("portc=%d\n",*portc);
+            break;
+         case 'p':
+            *port = atoi(optarg);
+            printf("port=%d\n",*port);
+            break;
+
+         case 't':
+          *threads = atoi(optarg);
+          printf("th_num=%d\n",*threads );
+          break;
+
+         case 'h':
+            *host = malloc(strlen(optarg)+1);
+            strcpy(*host,optarg);
+         }
+   }
+   *root_dir= file;
+   return 0;
+
 }
