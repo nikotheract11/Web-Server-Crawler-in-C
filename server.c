@@ -17,53 +17,55 @@
 
 #include "./arrays/QueueInterface.h"
 
-Queue fds;
+Queue fds;    /* Queue holding fd's of sockets (requests) to be served */
+
 pthread_mutex_t  q_mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cv;
-int count;
+int count;    /* Stores the # of fds in the queue */
+
 time_t start;
+
 int PAGES;
 int BYTES;
 int EXIT;
 
-
+char *root_dir;
 
 void child_server(int newsock);
 void perror_exit(char *message);
 void sigchld_handler (int sig);
 void create_threads(int thread_count, pthread_t *threads);
 void server_command(int sock);
+int mygetopt(int argc, char * const argv[], int *port,int *portc,int *threads,char **root_dir);
 
 int main(int argc, char *argv[]) {
-   // time_t start = time(NULL);
+
     pthread_cond_init(&cv, NULL); 
     start = time(NULL);
-    int             port, sock, newsock;
+    int port, c_port, thread_count=0, sock, newsock;
+    mygetopt(argc,argv,&port,&c_port,&thread_count,&root_dir);
     struct sockaddr_in server, server2, client;
-    socklen_t clientlen;
-    int thread_count = 3;  // atoi(argv[1])
+    socklen_t clientlen=0;
     pthread_t *threads = malloc(thread_count*sizeof(pthread_t));
-    create_threads(thread_count,threads);
+   // create_threads(thread_count,threads);
 
     struct sockaddr *serverptr=(struct sockaddr *)&server;
     struct sockaddr *clientptr=(struct sockaddr *)&client;
     struct sockaddr *serverptr2=(struct sockaddr *)&server2;
-   // struct hostent *rem;
 
 
-   /* Initialize Queue, dont forget to lock mutex */
+   /* Initialize Queue */
     pthread_mutex_lock(&q_mutex);
     InitializeQueue(&fds); 
     pthread_mutex_unlock(&q_mutex);
 
-    if (argc != 3) {
+    if (argc != 9) {
         printf("Please give port number\n");exit(1);}
-    port = atoi(argv[1]);
-    int c_port = atoi(argv[2]);
     int sock_c;
-    /* Reap dead children asynchronously */
-    signal(SIGPIPE, SIG_IGN);
-    /* Create socket */
+
+    signal(SIGPIPE, SIG_IGN);   /* Handle SIGPIPE, ignoring this signal */
+
+    /* Create sockets */
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0)
         perror_exit("socket");
     if((sock_c = socket(AF_INET,SOCK_STREAM,0)) < 0)
@@ -89,7 +91,7 @@ int main(int argc, char *argv[]) {
         perror_exit("bind");
 
     /* Listen for connections */
-    if (listen(sock, 5) < 0) perror_exit("listen");
+    if (listen(sock, 500) < 0) perror_exit("listen");
     if (listen(sock_c, 5) < 0) perror_exit("listen");
 
     struct pollfd clients[2];
@@ -100,12 +102,12 @@ int main(int argc, char *argv[]) {
     clients[1].events = POLLRDNORM;
 
     printf("Listening for connections to port %d\n", port);
-    create_threads(thread_count,threads);
+    create_threads(thread_count,threads);   /* Create threadpool */
     while (1) {
 
-        /* accept connection */
+      /* accept connection */
       poll(clients,2,-1);
-      if (clients[0].revents & POLLRDNORM) {
+      if (clients[0].revents & POLLRDNORM) {  /* serving port */
          if ((newsock = accept(sock, clientptr, &clientlen)) < 0) perror_exit("accept");
 
       /* Insert socket to the queue so that a thread serves it */
@@ -115,32 +117,39 @@ int main(int argc, char *argv[]) {
          pthread_mutex_unlock(&q_mutex);
          pthread_cond_signal(&cv);
 
-    	    printf("Accepted connection\n");
+    	   printf("Accepted connection\n");
    }
-   if (clients[1].revents & POLLRDNORM) {
+   if (clients[1].revents & POLLRDNORM) { /* command port */
       int newsock_c;
       if((newsock_c = accept(sock_c,clientptr,&clientlen)) < 0) perror_exit("accept");
       server_command(newsock_c);
-    //	close(newsock); /* parent closes socket to client            */
-			/* must be closed before it gets re-assigned */
     }
-    if(EXIT == 1) break;
+    if(EXIT == 1) {
+      pthread_cond_signal(&cv);
+      break;
+    }
+}
+int *ret;
+for(int i=0;i<thread_count;i++){
+  pthread_cond_signal(&cv);
+  pthread_join(threads[i],(void**)&ret);
+  pthread_cond_signal(&cv);
 }
 free(threads);
+free(root_dir);
+pthread_exit(NULL);
 }
 void *serve_th();
 
 void create_threads(int thread_count, pthread_t *threads){
    for(int i = 0; i < thread_count; i++) {
-        if(pthread_create(&(threads[i]), NULL,serve_th, NULL) != 0) {
+        if(pthread_create(threads+i, NULL,serve_th, NULL) != 0) {
          //   return NULL;
          }
       }
 }
 
 void send_site(int sock,char *url){
-   printf("inside send_site %s\n",url);
-   char *root_dir = "/home/nikos/Web-Server-Crawler-in-C/www";
    char *path = malloc(strlen(url) + strlen(root_dir)+1);
 
    sprintf(path,"%s%s",root_dir,url);
@@ -162,8 +171,8 @@ void send_site(int sock,char *url){
          "<html>Sorry dude, couldn’t find this file.</html>";
 
          if((n=write(sock,rep,strlen(rep))) < 0 )  perror("write NE");
-close(fd);
-printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n");
+        // close(fd);
+         free(path);  // Clean up memory  ==========
          return;
       }
 
@@ -178,14 +187,13 @@ printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n");
          "<html>Trying to access this file but don’t think I can make it</html>";
 
          if((n=write(sock,rep,strlen(rep))) < 0 )  perror("write NE");
-         close(fd);
-         printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n");
-
+        // close(fd);
+         free(path);  // Clean up memory  ==========
          return;
       }
-   //   return 0;
    }
-   int sz = lseek(fd,0,SEEK_END);
+
+   int sz = lseek(fd,0,SEEK_END); // Page size
    if(sz<0) perror("lseek:");
    lseek(fd,0,SEEK_SET);
 
@@ -194,13 +202,7 @@ printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n");
    BYTES += sz;
    pthread_mutex_unlock(&q_mutex);
 
-   char rep[1024];/* = "HTTP/1.1 200 OK\r\n"
-   "Date: Mon, 27 May 2018 12:28:53 GMT\r\n"
-   "Server: myhttpd/1.0.0 (Ubuntu64)\r\n"
-   "Content-Length: 2000\r\n"
-   "Content-Type: text/html\r\n"
-   "Connection: Closed\r\n"
-   "\r\n\r\n";*/
+   char rep[1024];
 
    sprintf(rep,"HTTP/1.1 200 OK\r\n"
    "Date: Mon, 27 May 2018 12:28:53 GMT\r\n"
@@ -212,53 +214,58 @@ printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n");
 
    /* Write header to socket */
    write(sock,rep,strlen(rep));
-   /* Write page Content to socket */
+   /* Write page Content to socket, read from file, write to socket */
    while((n=read(fd,buf,1023)) > 0){
       if(n==0) break;
       if ( write(sock,buf,1023) < n) perror("bad write");
    }
+   free(path);
    close(fd);
-
-//   return 0;
 }
 
 
 void serve_request(int sock){
-   printf("inside serve_request\n");
    char buf[1024],url[512],method[10],ver[32];
    int n,flag=0;
 
    while((n=read(sock,buf,1023))>0){
-      printf("n=%d\n",n );
       buf[n] = '\0';
-      printf("%s\n",buf );
       if(strstr(buf,"\r\n") != NULL && !flag){
-         printf("before scanf\n");
          sscanf(buf,"%s %s %s",method,url,ver);
-         printf("after scanf\n");
          flag = 1;
       }
       if(n<1023) break;
    }
-   printf("end serve\n");
    send_site(sock,url);
-
-   //return 0;
 }
 
+/* The starting point of threads */
 void *serve_th(){
    int sock;
-   printf("inside serve_th\n");
    
-  // pthread_cond_signal(&cv);
    while(1){ 
       pthread_mutex_lock(&q_mutex);
+
       while(count < 1){
-         pthread_cond_wait(&cv, &q_mutex);
+        if(EXIT==1) {
+          printf("================");
+          pthread_mutex_unlock(&q_mutex);
+          pthread_cond_signal(&cv);
+          pthread_exit(NULL);
+        }
+        pthread_cond_wait(&cv, &q_mutex);
+        printf("EXI=%d\n",EXIT);
+        if(EXIT==1) {
+          printf("================");
+          pthread_mutex_unlock(&q_mutex);
+          pthread_cond_signal(&cv);
+          pthread_exit(NULL);
+        }
       }
       Remove(&fds,&sock);
       count--;
       pthread_mutex_unlock(&q_mutex);
+      
 
 
       serve_request(sock);
@@ -270,6 +277,7 @@ void *serve_th(){
 
 }
 
+/* Nice format for date in STATS*/
 char *conv(long n){
    char *buf = malloc(128*sizeof(char));
    if(n>3600){
@@ -298,8 +306,11 @@ void stats(int sock){
    if(write(sock,rep,strlen(rep)) < 0) perror("write");
    free(a);
 }
-void shutd(){
+void shutd(int sock){
    printf("---> Server is shutting down! <---\nIn 3\n");
+   char msg[256];
+   strcpy(msg,"---> Server is shutting down! <---\n");
+   if(write(sock,msg,strlen(msg)) < 0) perror("write");
    sleep(1);
    printf("2\n");
    sleep(1);
@@ -315,14 +326,14 @@ void server_command(int sock){
    char buf[32];
    int n;
    for(;;){
-   if((n=read(sock,buf,31)) < 0) perror("read");
-   if(n==0) break;
-   buf[n-2] = '\0';
+     if((n=read(sock,buf,31)) < 0) perror_exit("read");
+     if(n==0) break;
+     buf[n-2] = '\0'; // n-2 bcs of \r\n
 
-   if(!strcmp(buf,"STATS")) stats(sock);
-   else if(!strcmp(buf,"SHUTDOWN")) {
-      shutd();
-      break;
+     if(!strcmp(buf,"STATS")) stats(sock);
+     else if(!strcmp(buf,"SHUTDOWN")) {
+        shutd(sock);
+        break;
    }
 }
 }
@@ -334,4 +345,35 @@ void sigchld_handler (int sig) {
 void perror_exit(char *message) {
     perror(message);
     exit(EXIT_FAILURE);
+}
+
+int mygetopt(int argc, char * const argv[], int *port,int *portc,int *threads,char **root_dir){
+   int opt,k;
+   char *file;
+   while((opt = getopt(argc,argv,":d:c:p:t:") )!= -1)   {
+      switch (opt) {
+         case 'd':
+         file = (char*) malloc((strlen(optarg)+1)*sizeof(char));
+            strcpy(file,optarg);
+            printf("root_dir:%s\n", file);
+            break;
+
+         case 'c':
+            *portc=atoi(optarg);
+            printf("portc=%d\n",*portc);
+            break;
+         case 'p':
+            *port = atoi(optarg);
+            printf("port=%d\n",*port);
+            break;
+         
+         case 't':
+          *threads = atoi(optarg);
+          printf("th_num=%d\n",*threads );
+          break;
+         }
+   }
+   *root_dir= file;
+   return 0;
+
 }

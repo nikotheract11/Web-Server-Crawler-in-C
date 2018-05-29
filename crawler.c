@@ -103,7 +103,7 @@ int main(int argc, char const *argv[]) {
 
    /* insert starting url to the queue */
    pthread_mutex_lock(&q_mutex);
-   printf("%s\n",argv[3] );
+   printf("Start crawling from site: %s\n",argv[3] );
    Insert((char*)argv[3],&urls,1,strlen(argv[3])+1);
    counter++;
    pthread_mutex_unlock(&q_mutex);
@@ -120,22 +120,14 @@ int main(int argc, char const *argv[]) {
    if(listen(sock_c, 5) < 0) perror_exit("listen");
    int newsock_c;
    printf("sock_c=%d,c_port=%d\n",sock_c,c_port );
-  // struct pollfd clients[1];
-   //clients[0].fd = sock_c;
-  // clients[0].events = POLLRDNORM;
-
 
    while(1){
-    // poll(clients,1,-1);
-  //   if (clients[0].revents & POLLRDNORM) {
-       if((newsock_c = accept(sock_c,clientptr,&clientlen)) < 0) {
-        printf("newsock=%d,sock_c=%d\n",newsock_c,sock_c );
-        perror_exit("accept");}
-       server_command(newsock_c);
-   //   }
+       if((newsock_c = accept(sock_c,clientptr,&clientlen)) < 0) 
+        perror_exit("accept");
+      server_command(newsock_c);
       close(newsock_c);
       if(EXIT == 1) break;
-      }
+    }
    close(sock_c);
    return 0;
 }
@@ -156,7 +148,7 @@ void *request(int sock, char *url){
       strcpy(tok[i++],token);    // store tokens here
       token = strtok(NULL, del);
    }
-   char *root = "/home/nikos/Web-Server-Crawler-in-C/scr";
+   char *root = "/home/nikos/Web-Server-Crawler-in-C/scr";    //======== DYNAMIC 
 
    char *dir = malloc(strlen(tok[i-2])+ strlen(root)+1+2);
    sprintf(dir,"%s/%s/",root,tok[i-2]);
@@ -164,7 +156,6 @@ void *request(int sock, char *url){
    strcpy(file,tok[i-1]);
 
    DIR *d = opendir(dir);
-  // printf("%s\n",dir );
    if(d == NULL && errno == ENOENT) {
     if(mkdir(dir,0700)<0) perror("mkdir");
   }
@@ -221,7 +212,7 @@ void *thread_r(struct arg *args){
    struct sockaddr *serverptr ;
    size_t len;
 
-   if((sock = socket(AF_INET,SOCK_STREAM,0)) < 0)
+   if((sock = socket(AF_INET,SOCK_STREAM,0)) < 0) //===============
      perror_exit("sock_c");
    serverptr = args->serverptr;
    len = args->len;
@@ -291,7 +282,6 @@ void analyze_site(char *file){
       if(search_q(urls,s) == 0 && exist < 0){
         Insert(s,&urls,1,strlen(s));
         counter++;
-        //printf("===> %s\n", s);
       }
       pthread_mutex_unlock(&q_mutex);
       pthread_cond_signal(&cv);
@@ -359,7 +349,6 @@ void server_command(int sock){
       strcpy(str,buf);
       int i = strlen(buf);
       int n=read(sock,str+i,2048-i);
-      printf("%s\n",str );
       if(n<0) perror("read:");
       else {
         jexec(str,"./doc",sock);

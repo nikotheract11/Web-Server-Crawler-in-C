@@ -30,12 +30,19 @@ fi
 
 bf=$(pwd)
 cd "$1"
+if [ ! "$(ls -A)"]
+then
+   echo "# Warning: Directory $1 is not empty, purging";
+   rm -rf ./*;
+fi
 rp=$(pwd)
 
 #Create w directories
 for (( i=0 ; i< $3 ; i++)) do
    printf -v var 'site%d' "$i"
+   echo "# Creating $var"
    mkdir "$var"
+   echo "$var" >> ../doc
 done
 
 # Create p pages for each dir
@@ -49,8 +56,6 @@ do
    done
    let "i = i  + 1"
 done
-
-# https://stackoverflow.com/questions/16487258/how-to-declare-2d-array-in-bash
 
 
 let "f= ($4/2) + 1"
@@ -66,8 +71,7 @@ do
       then
          rm -rf ../links
       fi
-      #echo ok #\<html\> >> $file ; echo \<body\> >> $file
-      for ((i=0;i<$f;i++)) do
+      for ((i=0;i<$f;i++)) do             # Create internal links
          link=$(ls | shuf | head -n 1)
          while [ "$link" == "$file" ]
          do
@@ -75,10 +79,13 @@ do
          done
          echo "$dir$link" >> ../links
       done
-      #for ((i=0/home/nikos/Web-Server-Crawler-in-C/www;i<$q;i++)) do
+
+      # Create external links
       for di in "$rp"/*/
       do
-         if [ "$di" == "../$dir" ]
+         #if [ "$di" == "../$dir" ]
+         lf=$(echo "$di" | cut -d "/" -f 6)  # Ignore the same directory 
+         if [ "$lf/" == "$dir" ]
          then
             continue
          fi
@@ -98,25 +105,31 @@ do
 
       k=0
       let "k=$RANDOM%(LINES-2000)"
-      #echo "k=$k"
-
       m=0
       let "m=$RANDOM%(1000)+1000"
-   #  echo "m=$m"
+
+      
 
       echo \<!DOCTYPE html\> >> $file ; echo \<body\> >> $file ; echo \<html\> >> $file
       for ((i=1;i<=($f+$q);i++))
       do
+         echo "# Creating $file, with $m lines starting from $k line"
          let "start=$k+($i-1)*$m/($f+$q)"
          let "end=$start + $m/($f+$q)"
-      #  echo "start=$start end=$end"
          awk -v s=$start -v e=$end 'NR>=s&&NR<=e' "$bf/$2" >> $file
          echo >> $file
          a=$(sed -n -e "$i"p "../links")
+         echo "Adding link to $file"
          echo "<a href=/$a> Link$i </a>" >> $file
       done
       echo \</body\> >> $file ; echo \</html\> >> $file
 
    done
+   let "s=$3*$4"
+   if [ "$(sort ../total | uniq | wc -l)" -eq "$s" ]
+   then
+      echo "# All pages have at least one incoming link"
+   fi
+   echo "Done"
    cd ..
 done
