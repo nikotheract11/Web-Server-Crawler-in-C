@@ -16,8 +16,8 @@
 #include <poll.h>
 #include <time.h>
 #include "./linked-lists/QueueInterface.h"
+#include "./jobEx_forCrawler/trie.h"
 #include <dirent.h>
-#include "/home/nikos/jobExecutor/tests/sdi1500076/trie.h"
 
 
 struct arg {
@@ -60,6 +60,7 @@ void create_threads(int thread_counter, pthread_t *threads,struct arg *args){
 int main(int argc, char * const argv[]) {
    int port, sock_c,c_port,thread_counter=0;
    char *host,*s_url;
+   start = time(NULL);
 
    mygetopt2(argc,argv,&port,&c_port,&thread_counter,&root_dir,&host,&s_url);
 
@@ -269,7 +270,7 @@ void *thread_r(struct arg *args){
 
       request(sock,buf);
       close(sock);
-      sleep(1);
+   //   sleep(1);
       pthread_mutex_lock(&q_mutex);
       active_threads--;
       pthread_mutex_unlock(&q_mutex);
@@ -358,9 +359,9 @@ void stats(int sock){
    free(a);
 }
 void shutd(int sock){
-   printf("---> Server is shutting down! <---\nIn 3\n");
+   printf("---> Crawler is shutting down! <---\nIn 3\n");
    char msg[256];
-   strcpy(msg,"---> Server is shutting down! <---\n");
+   strcpy(msg,"---> Crawler is shutting down! <---\n");
    if(write(sock,msg,strlen(msg)) < 0) perror("write");
    sleep(1);
    printf("2\n");

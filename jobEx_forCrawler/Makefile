@@ -4,7 +4,7 @@ HEADER = trie.h
 OUT = jobExecutor
 CC = gcc
 all : $(OBJS)
-	$(CC) $(OBJS) -o $(OUT)
+	mv *.o ./objs
 dir.o: dir.c
 	$(CC) -c dir.c
 fifo.o : fifo.c
