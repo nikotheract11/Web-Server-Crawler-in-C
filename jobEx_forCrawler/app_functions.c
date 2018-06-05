@@ -259,7 +259,7 @@ int sendMsg(char *buf,int *wr,int w){
 
 int jsearch(char **s,int w,int sock){
 	for(int i=0;i<w;i++){
-		if(s[i]!=NULL) {//printf("%s\n",s[i] );
+		if(s[i]!=NULL) {
 			int n=0,sum=0;
 			while((n=write(sock,s[i],strlen(s[i])))>0){
 				sum += n;
@@ -352,7 +352,7 @@ char * readMsg(int *rfd,int w,int d,char *op,int sock){
 		if(pfds[i].revents & POLLIN){
 			int bytesToRead,bytesRead=0,k;
 			if(read(rfd[i],&bytesToRead,sizeof(int)) < 0)
-				perror("kokokdoakdoakdoak");
+				perror("read");
 
 			buf[i] = malloc((bytesToRead+1)*sizeof(char));
 

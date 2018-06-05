@@ -21,4 +21,4 @@ crawler.o: crawler.c
 jexec:
 	cd jobEx_forCrawler && $(MAKE)
 clean :
-	rm -f $(OBJS_server) $(OUT_server)
+	rm -f $(OBJS_server) $(OUT_server) $(OBJS_crawler) $(OUT_crawler)

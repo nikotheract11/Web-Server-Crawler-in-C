@@ -47,7 +47,6 @@ int main(int argc, char *argv[]) {
     struct sockaddr_in server, server2, client;
     socklen_t clientlen=0;
     pthread_t *threads = malloc(thread_count*sizeof(pthread_t));
-   // create_threads(thread_count,threads);
 
     struct sockaddr *serverptr=(struct sockaddr *)&server;
     struct sockaddr *clientptr=(struct sockaddr *)&client;
@@ -131,9 +130,7 @@ int main(int argc, char *argv[]) {
 }
 int *ret;
 for(int i=0;i<thread_count;i++){
-  pthread_cond_signal(&cv);
   pthread_join(threads[i],(void**)&ret);
-  pthread_cond_signal(&cv);
 }
 free(threads);
 free(root_dir);
@@ -144,7 +141,7 @@ void *serve_th();
 void create_threads(int thread_count, pthread_t *threads){
    for(int i = 0; i < thread_count; i++) {
         if(pthread_create(threads+i, NULL,serve_th, NULL) != 0) {
-         //   return NULL;
+            printf("Failed to create thread\n");
          }
       }
 }
@@ -161,33 +158,41 @@ void send_site(int sock,char *url){
 
    if (fd < 0) {
       if (errno == ENOENT){
-         char *rep="HTTP/1.1 404 Not Found\r\n"
-         "Date: Mon, 27 May 2018 12:28:53 GMT\r\n"
+         char rep[1024];
+         char buf[1000];
+         time_t now = time(0);
+         struct tm tm = *gmtime(&now);
+         strftime(buf, sizeof buf, "%a, %d %b %Y %H:%M:%S %Z", &tm);
+         sprintf(rep,"HTTP/1.1 404 Not Found\r\n"
+         "Date: %s\r\n"
          "Server: myhttpd/1.0.0 (Ubuntu64)\r\n"
          "Content-Length: 124\r\n"
          "Content-Type: text/html\r\n"
          "Connection: Closed\r\n"
          "\r\n\r\n"
-         "<html>Sorry dude, couldn’t find this file.</html>";
+         "<html>Sorry dude, couldn not find this file.</html>",buf);
 
          if((n=write(sock,rep,strlen(rep))) < 0 )  perror("write NE");
-        // close(fd);
          free(path);  // Clean up memory  ==========
          return;
       }
 
       else if( errno == EACCES){
-         char *rep="HTTP/1.1 403 Forbidden\r\n"
-         "Date: Mon, 27 May 2018 12:28:53 GMT\r\n"
+         char rep[1024];
+         char buf[1000];
+         time_t now = time(0);
+         struct tm tm = *gmtime(&now);
+         strftime(buf, sizeof buf, "%a, %d %b %Y %H:%M:%S %Z", &tm);
+         sprintf(rep,"HTTP/1.1 403 Forbidden\r\n"
+         "Date: %s\r\n"//Mon, 27 May 2018 12:28:53 GMT\r\n"
          "Server: myhttpd/1.0.0 (Ubuntu64)\r\n"
          "Content-Length: 124\r\n"
          "Content-Type: text/html\r\n"
          "Connection: Closed\r\n"
          "\r\n\r\n"
-         "<html>Trying to access this file but don’t think I can make it</html>";
+         "<html>Trying to access this file but dont think I can make it</html>",buf);
 
          if((n=write(sock,rep,strlen(rep))) < 0 )  perror("write NE");
-        // close(fd);
          free(path);  // Clean up memory  ==========
          return;
       }
@@ -247,16 +252,9 @@ void *serve_th(){
       pthread_mutex_lock(&q_mutex);
 
       while(count < 1){
-        if(EXIT==1) {
-          printf("================");
-          pthread_mutex_unlock(&q_mutex);
-          pthread_cond_signal(&cv);
-          pthread_exit(NULL);
-        }
         pthread_cond_wait(&cv, &q_mutex);
-        printf("EXI=%d\n",EXIT);
+
         if(EXIT==1) {
-          printf("================");
           pthread_mutex_unlock(&q_mutex);
           pthread_cond_signal(&cv);
           pthread_exit(NULL);
@@ -265,8 +263,6 @@ void *serve_th(){
       Remove(&fds,&sock,0);
       count--;
       pthread_mutex_unlock(&q_mutex);
-
-
 
       serve_request(sock);
       close(sock);
@@ -330,7 +326,10 @@ void server_command(int sock){
      if(n==0) break;
      buf[n-2] = '\0'; // n-2 bcs of \r\n
 
-     if(!strcmp(buf,"STATS")) stats(sock);
+     if(!strcmp(buf,"STATS")) {
+        stats(sock);
+        break;
+     }
      else if(!strcmp(buf,"SHUTDOWN")) {
         shutd(sock);
         break;
@@ -338,9 +337,6 @@ void server_command(int sock){
 }
 }
 
-void sigchld_handler (int sig) {
-	while (waitpid(-1, NULL, WNOHANG) > 0);
-}
 
 void perror_exit(char *message) {
     perror(message);

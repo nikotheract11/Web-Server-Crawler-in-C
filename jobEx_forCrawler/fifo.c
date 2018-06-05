@@ -68,7 +68,6 @@ int jobExecutor(int *wr,int *rfd,int w,char *buf,char *docfile,int sock){
 			str[j] = '\0';
 			if((pfds[counter%w].revents & POLLOUT) && write(wr[counter%w],str,j+1)<=0) perror("write error"); 		// j anti j-1?
 			insertAtStart(str,&paths[counter++%w]);
-			printf("f:::: %s\n",str);
 			j=0;
 		}
 		else str[j++] = c;
@@ -77,10 +76,8 @@ int jobExecutor(int *wr,int *rfd,int w,char *buf,char *docfile,int sock){
 	sleep(1);
 
 	/* All paths have been sent, now send STOP to let them know */
-//	poll(pfds,w,-1);
 	for(int i=0;i<w;i++){
 		if(pfds[i].revents & POLLOUT) write(wr[i],"stop",strlen("stop")+1);
-//		poll(pfds,w,-1);
 	}
 //	sleep(1);
 	/* Here comes the user interface */
@@ -113,9 +110,7 @@ int worker(int rfd,int wfd){
 
 		if(!strcmp(buff,"stop")) break;
 		dirs[d_num] = malloc(strlen(buff)+1);
-//		printf("d:::: %s\n",dirs[d_num-1]);
 		strcpy(dirs[d_num++],buff);
-		printf("d:::: %s\n",dirs[d_num-1]);
 	}
 
 	init(dirs,d_num);		// Initialize structures like trie and map
@@ -139,11 +134,9 @@ int worker(int rfd,int wfd){
 int jexec(char *buf,char *docfile,int sock){
 	int *readfd,*writefd,w=5;
 	pid_t p,workers[5];
-	//char *docfile;
 
 	mkdir("./log",0777);
 
-	//mygetopt(argc,argv,&w,&docfile);
 	readfd = malloc(w*sizeof(int));
 	writefd = malloc(w*sizeof(int));
 
@@ -204,11 +197,9 @@ int jexec(char *buf,char *docfile,int sock){
 		jobExecutor(writefd,readfd,w,buf,docfile,sock);
 		for(int i=0;i<w;i++){
 			char fifo_1[32],fifo_2[32];
-		//	int status;
 
 			sprintf(fifo_1,"./fifo1_%d",i);
 			sprintf(fifo_2,"./fifo2_%d",i);
-		//	waitpid(workers[i],&status,0);
 			close(writefd[i]);
 			close(readfd[i]);
 			unlink(fifo_1);

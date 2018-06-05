@@ -50,9 +50,8 @@ char ***map_(char **dirname,int dir_num,unsigned int *files_num,char ***fs){
 	for(int j=0;j<dir_num;j++){
 
 		/* open directory j */
-		printf("%s\n",dirname[j] );
 		if ( ( dir_ptr = opendir(dirname[j])) == NULL )
-			fprintf(stderr, "cannot hj jh jh  open %s\n",dirname[j]);
+			fprintf(stderr, "cannot open %s\n",dirname[j]);
 		else {
 			while ( ( direntp=readdir(dir_ptr) ) != NULL ){
 				if (direntp->d_ino == 0 ) continue;
@@ -103,12 +102,9 @@ char ***map_(char **dirname,int dir_num,unsigned int *files_num,char ***fs){
 	char **get(const char* file){
 
 		FILE *fp;
-	//	char kk[32];
-		//sprintf(kk,"./ff/%s",file);
 		fp = fopen(file,"r");
 		if(fp == NULL) {
 			perror("GET file not open");
-			printf("%s\n",file);
 			return NULL;
 		}
 		int i=0,j=0;

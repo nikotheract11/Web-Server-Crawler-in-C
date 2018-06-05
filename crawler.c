@@ -21,7 +21,6 @@
 
 
 struct arg {
-   int sock;
    struct sockaddr *serverptr;
    size_t len;
 };
@@ -53,7 +52,7 @@ void perror_exit(char *message) {
 void create_threads(int thread_counter, pthread_t *threads,struct arg *args){
    for(int i = 0; i < thread_counter; i++) {
         if(pthread_create(&(threads[i]), NULL,thread_r, (void*)args) != 0) {
-         //   return NULL;
+         printf("cant create threads\n");
          }
       }
 }
@@ -78,13 +77,12 @@ int main(int argc, char * const argv[]) {
    struct sockaddr *clientptr=(struct sockaddr *)&client;
 
    struct hostent *rem;
-//   int thread_counter = 3;  // atoi(argv[1])
    pthread_t *threads = malloc(thread_counter*sizeof(pthread_t));
 
    if (argc <= 3) {
      printf("Please give host name and port number\n");
-        exit(1);}
-  /* Create socket */
+        exit(1);
+     }
   /* Find server address */
    if ((rem = gethostbyname(host)) == NULL) {
      herror("gethostbyname"); exit(1);
@@ -97,22 +95,17 @@ int main(int argc, char * const argv[]) {
     if (setsockopt(sock_c, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)) < 0)
         perror("setsockopt(SO_REUSEADDR) failed");
 
-   //port = atoi(argv[2]); /*Convert port number to integer*/
-   //c_port = atoi(argv[4]);
    server.sin_family = AF_INET;       /* Internet domain */
    memcpy(&server.sin_addr, rem->h_addr, rem->h_length);
    server.sin_port = htons(port);         /* Server port */
 
    /* A struct to store infos about the connection */
-   //struct arg *args = malloc(sizeof(struct arg)) ;
    struct arg args;
-   //args->sock = sock;
    args.serverptr = serverptr;
    args.len = sizeof(server);
 
    /* Create thread_pool */
    create_threads(thread_counter,threads,&args);
-   //free(args);
 
    /* insert starting url to the queue */
    pthread_mutex_lock(&q_mutex);
@@ -143,10 +136,9 @@ int main(int argc, char * const argv[]) {
     }
 
    int *ret;
+   pthread_cond_signal(&cv);
    for(int i=0;i<thread_counter;i++){
-     pthread_cond_signal(&cv);
      pthread_join(threads[i],(void**)&ret);
-     pthread_cond_signal(&cv);
    }
    close(sock_c);
    free(root_dir);
@@ -171,10 +163,10 @@ void *request(int sock, char *url){
       strcpy(tok[i++],token);    // store tokens here
       token = strtok(NULL, del);
    }
-   char *root = "/home/nikos/Web-Server-Crawler-in-C/scr";    //======== DYNAMIC
 
-   char *dir = malloc(strlen(tok[i-2])+ strlen(root)+1+2);
-   sprintf(dir,"%s/%s/",root,tok[i-2]);
+
+   char *dir = malloc(strlen(tok[i-2])+ strlen(root_dir)+1+2);
+   sprintf(dir,"%s/%s/",root_dir,tok[i-2]);
    char *file = malloc(strlen(tok[i-1])+1);
    strcpy(file,tok[i-1]);
 
@@ -184,17 +176,22 @@ void *request(int sock, char *url){
   }
    else closedir(d);
 
-   char *filename = malloc(strlen(dir)+strlen(file)+200);      // =====================
+   char *filename = malloc(strlen(dir)+strlen(file)+2);
    sprintf(filename,"%s/%s",dir,file);
    FILE *fp = fopen(filename,"w");
-   if(fp < 0 ) perror("cannot open write file: ");
+   if(fp <= 0 ) perror("cannot open write file: ");
+
+   char dt[1000];
+   time_t now = time(0);
+   struct tm tm = *gmtime(&now);
+   strftime(dt, sizeof dt, "%a, %d %b %Y %H:%M:%S %Z", &tm);
 
    sprintf(req,"GET %s HTTP/1.0\r\n"
-   "Date: Mon, 27 May 2018 12:28:53 GMT\r\n"
+   "Date: %s\r\n"
    "Server: myhttpd/1.0.0 (Ubuntu64)\r\n"
    "Content-Length: 5024\r\n"
    "Content-Type: text/html\r\n"
-   "Connection: Closed\r\n""\r\n\r\n",url);
+   "Connection: Closed\r\n""\r\n\r\n",url,dt);
    if (write(sock, req, strlen(req)) < 0)
       perror_exit("write");
 
@@ -202,8 +199,15 @@ void *request(int sock, char *url){
           req[n] = '\0';
           if((str = strstr(req,"Content-Length:")) == NULL) perror_exit("strstr");
           sscanf(str+strlen("Content-Length:"),"%d",&len);
-          str = strstr(req,"\r\n\r\n");
+
+          /* Make sure that we have read the whole HEADER */
+          while((str = strstr(req,"\r\n\r\n")) == NULL && n > 0) {
+             n=read(sock,req,1023);
+             req[n] = '\0';
+          }
    } else perror_exit("read");
+
+   /* If '\r\n\r\n' found, write the bytes which we read with the header to the file, without writing the header */
    if(str != NULL && str != req){
       a =(long)req + (long) n - (long) str - (long)strlen("\r\n\r\n") + 1;
       long bb = (long) str + strlen("\r\n\r\n")+2;
@@ -213,14 +217,13 @@ void *request(int sock, char *url){
    if(buf == NULL) perror("malloc failed");
    n=0;
    int k;
-   if (fp < 0 ) perror("wtf?");
    while((k=read(sock,buf,500)) > 0 ) {
       n+=k;
       if(n >= len - a){
          fwrite(buf,1,k - (n-len + a)+3,fp);
          break;
       }
-      memset(buf+k,'\0',500);
+      memset(buf+k,'\0',500);    // fill with '\0'
       if(fwrite(buf,1,k,fp) < k) break;
 
    }
@@ -240,8 +243,6 @@ void *thread_r(struct arg *args){
    struct sockaddr *serverptr ;
    size_t len;
 
-   if((sock = socket(AF_INET,SOCK_STREAM,0)) < 0) //===============
-     perror_exit("sock_c");
    serverptr = args->serverptr;
    len = args->len;
 
@@ -270,7 +271,6 @@ void *thread_r(struct arg *args){
 
       request(sock,buf);
       close(sock);
-   //   sleep(1);
       pthread_mutex_lock(&q_mutex);
       active_threads--;
       pthread_mutex_unlock(&q_mutex);
@@ -285,8 +285,13 @@ void *thread_r(struct arg *args){
 void analyze_site(char *file){
    int fd = open(file,O_RDONLY);
    char *str,*ptr;
+
    int sz = lseek(fd,0,SEEK_END);
    lseek(fd,0,SEEK_SET);
+   pthread_mutex_lock(&q_mutex);
+   BYTES += sz;
+   pthread_mutex_unlock(&q_mutex);
+
    str = malloc(sz+1);
    ptr=str;
    read(fd,str,sz);
@@ -294,32 +299,28 @@ void analyze_site(char *file){
    char *s;
 
    str[sz] = '\0';
+   /* find links */
    while(1){
-      s = strstr(str+1,"<a href=");
-      if(s==NULL) break;
-      s = (char *) ((long) s + strlen("<a href="));
-      str = strstr(s,">");
+      s = strstr(str+1,"<a href=");    // find <a href
+      if(s==NULL) break;      // <a href not found so break
+      s = (char *) ((long) s + strlen("<a href="));   // if found, move pointer to the link
+      str = strstr(s,">");    // find closing tag
       if(str==NULL) break;
-      a = (long) str - (long) s;
+      a = (long) str - (long) s; // a is ponter to the end of the link
       s[a] = '\0';
-      while (s[a-1] == ' ') s[--a] = '\0';
-      while (s[0] == ' ') s = (char *) ((long) s + 1);
+      while (s[a-1] == ' ') s[--a] = '\0'; // ignoring spaces
+      while (s[0] == ' ') s = (char *) ((long) s + 1);   // ignoring spaces at start
 
 
 
       pthread_mutex_lock(&q_mutex);
-     /* p_list *p = find(s);
-      if(p==NULL){
-         Insert(s,&urls,1,strlen(s));
-         insert(s,0);
-         counter++;
-      }*/
       struct stat buffer;
       char *kl = malloc(1024);
-      sprintf(kl,"%s%s","./scr",s);
-      int exist = stat(kl,&buffer);
-      if(search_q(urls,s) == 0 && exist < 0){
+      sprintf(kl,"%s%s",root_dir,s+1); // s+1 to ignore '/' bcs root_dir contains it
+      int exist;
+      if(search_q(urls,s) == 0 && (exist= stat(kl,&buffer)) < 0){    // if link not int the queue and not exists
         Insert(s,&urls,1,strlen(s));
+        PAGES++;
         counter++;
       }
       pthread_mutex_unlock(&q_mutex);
@@ -354,7 +355,7 @@ void stats(int sock){
    char* a=conv(difftime(cur,start));
    char rep[2048];
    memset(rep,'\0',2048);
-   sprintf(rep,"server up for %s, served %d pages and %d bytes\n",a,PAGES,BYTES );
+   sprintf(rep,"Crawler up for %s, downloaded %d pages and %d bytes\n",a,PAGES,BYTES );
    if(write(sock,rep,strlen(rep)) < 0) perror("write");
    free(a);
 }
@@ -369,7 +370,11 @@ void shutd(int sock){
    printf("1\n");
    sleep(1);
    printf("GoodBye Mr/Mrs\n");
+
+   pthread_mutex_lock(&q_mutex);
    EXIT = 1;
+   pthread_mutex_unlock(&q_mutex);
+
 
 
 }
@@ -388,8 +393,6 @@ void server_command(int sock){
       break;
    }
 
-   /* Just this changed || */
-   /*                   \/ */
    else {
       if(counter > 0 || active_threads > 0) {
          char msg[128];
